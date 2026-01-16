@@ -49,6 +49,8 @@ uint8_t buttons = 0;
 uint8_t animationFrame = 0;
 uint8_t animationFrameLimit = 4;
 
+uint16_t animationDelay = 0;
+
 /**
  * @param baudrate - UART baudrate
  * @brief initializes the UART module
@@ -114,7 +116,7 @@ void drawUI() {
 }
 
 void drawPet() {
-    uint8_t row, col, count = 0;
+    uint8_t row, col = 0;
     for (uint8_t sprite_byte = 0; sprite_byte < 4*PET_SPRITE_DIMENSIONS; sprite_byte++) {
         uint8_t pixels = pgm_read_byte(&pet_sprite_idle[animationFrame][sprite_byte]);
         if (pixels != 0) 
@@ -122,16 +124,18 @@ void drawPet() {
             for (uint8_t pixel = 0; pixel < 8; pixel++)
             {
                 if (CHECK_BIT(pixels, pixel)){
-                    oled.drawPixel(col*8 + 20 + pixel, row + 15, 1);
+                    oled.drawPixel(col*8 + 48 + pixel, row + 15, 1);
                 }
             }
         }
         col++;
-        if (sprite_byte % 4 == 0)
+        if (col >= 4)
         {
             col = 0;
             row++;            
         }
+        if (row >= 32) // Not sure why this is needed, row is not reset to 0 between drawPet calls?
+            row = 0;
     }
 }
 
@@ -182,6 +186,11 @@ void init_timer() {
 
     TCA0.SINGLE.INTCTRL = 0x1;
 
+    TCB0.CTRLA = TCB_ENABLE_bm 
+               | TCB_CLKSEL_DIV2_gc;
+
+    TCB0.INTCTRL = 0x2;
+
     uart_putstring("Timer init end\n");
 
 }
@@ -203,6 +212,17 @@ ISR(TCA0_OVF_vect) {
     TCA0.SINGLE.INTFLAGS |= TCA_SINGLE_OVF_bm; // Reset interrupt flag
 }
 
+ISR(TCB0_INT_vect) {
+    animationDelay++;
+    if (animationDelay > 20 - 1)
+    {
+        animationFrame += 1;
+        animationFrame = animationFrame % animationFrameLimit;
+        animationDelay = 0;
+    }
+    TCB0.INTFLAGS |= TCB_OVF_bm; // Reset interrupt flag
+}
+
 void init_RTC() {
     uart_putstring("RTC init begin\n");
     RTC.CTRLA = RTC_PRESCALER_DIV4096_gc; // Set prescaler to 1:1
@@ -216,7 +236,7 @@ void init_RTC() {
 ISR(RTC_PIT_vect)
 {
     pet.age++;
-    // timeForScreenRefresh = true;
+    timeForScreenRefresh = true;
     RTC.PITINTFLAGS = RTC_PI_bm ; // clear interrupt flag
 }
 
