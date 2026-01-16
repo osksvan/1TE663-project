@@ -3,6 +3,8 @@
 #include <util/delay.h>
 #include <Arduino.h>
 #include <stdio.h>
+#include <EEPROM.h>
+#include <avr/wdt.h>
 
 #include <Adafruit_SSD1306.h>
 
@@ -19,8 +21,10 @@
 #define MENU_ITEMS_LENGTH 8
 
 #define MAX_NAME_LENGTH 10
+#define NAME_DEFAULT {'\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0'}
 
 #define CHECK_BIT(var,pos) ((var) & (1<<(pos))) // https://stackoverflow.com/questions/523724/c-c-check-if-one-bit-is-set-in-i-e-int-variable
+#define Reset_AVR() wdt_enable(WDTO_30MS); while(1) {} // https://support.microchip.com/s/article/Software-Reset-of-AVR-devices
 
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
@@ -29,7 +33,9 @@ int menuIndex = 0;
 volatile boolean timeForScreenRefresh = true;
 boolean test = true;
 
-char alpha_inputs[] = {'?', '!', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'};
+char alpha_inputs[] = {'?', '!', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 
+                       'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 
+                       's', 't', 'u', 'v', 'w', 'x', 'y', 'z'};
 
 char menu_entries[MENU_ITEMS][MENU_ITEMS_LENGTH] = {
                         {'S','t','a','t','u','s','\0','\0'},
@@ -37,19 +43,31 @@ char menu_entries[MENU_ITEMS][MENU_ITEMS_LENGTH] = {
                         {'P','l','a','y','\0','\0','\0','\0'},
                         {'P','e','t','\0','\0','\0','\0','\0'},
                         {'B','r','u','s','h','\0','\0','\0'},
-                        {'S','F','a','t','u','s','\0','\0'},
-                        {'S','G','a','t','u','s','\0','\0'},
-                        {'O','p','t','i','o','n','s','\0'}
+                        {'R','e','s','e','t','\0','\0','\0'},
+                        {'S','a','v','e','\0','\0','\0','\0'},
+                        {'R','e','s','t','a','r','t','\0'}
                         };
+#define MENU_STATUS  0
+#define MENU_FEED    1
+#define MENU_PLAY    2
+#define MENU_PET     3
+#define MENU_BRUSH   4
+#define MENU_RESET   5
+#define MENU_SAVE    6
+#define MENU_RESTART 7
 
 uint8_t menu_index = 0;
+
 
 uint8_t buttons = 0;
 
 uint8_t animationFrame = 0;
 uint8_t animationFrameLimit = 4;
 
-uint16_t animationDelay = 0;
+#define ANIMATION_TIME 20
+uint8_t animationDelay = 0;
+#define AGE_TIME 10
+uint8_t ageDelay = 0;
 
 /**
  * @param baudrate - UART baudrate
@@ -99,8 +117,9 @@ typedef enum STATE_MACHINE
 STATE_MACHINE_t gameState = NEW_GAME;
 
 struct Pet {
-    int age;
-    char name[10] = {'D', 'E', 'A', 'D', 'B', 'E', 'E', 'F', '!', '\0'};
+    uint8_t age;
+    char name[10] = NAME_DEFAULT;
+    bool reset = true; 
 };
 
 struct Pet pet;
@@ -195,6 +214,9 @@ void init_timer() {
 
 }
 
+// -------------- ISRs --------------------
+
+
 ISR(TCA0_OVF_vect) {
     // Perform a rudimentary button debouncing, inspired by
     // https://stackoverflow.com/questions/74357807/how-do-i-debounce-a-switch-in-c
@@ -214,7 +236,7 @@ ISR(TCA0_OVF_vect) {
 
 ISR(TCB0_INT_vect) {
     animationDelay++;
-    if (animationDelay > 20 - 1)
+    if (animationDelay > ANIMATION_TIME)
     {
         animationFrame += 1;
         animationFrame = animationFrame % animationFrameLimit;
@@ -235,10 +257,17 @@ void init_RTC() {
 
 ISR(RTC_PIT_vect)
 {
-    pet.age++;
+    ageDelay++;
+    if (ageDelay > AGE_TIME)
+    {
+        pet.age++;
+        ageDelay = 0;
+    }
     timeForScreenRefresh = true;
     RTC.PITINTFLAGS = RTC_PI_bm ; // clear interrupt flag
 }
+
+// -------------- BUTTONS --------------------
 
 bool button_pressed(int button) {
     return (buttons & button) != 0;
@@ -270,9 +299,58 @@ void wait_for_button_pressed_and_released(int button) {
     } // Loop until not button pressed
 }
 
+// -------------- EEPROM --------------------
+
+void load_save() {
+    pet.age     = EEPROM.read(0x00);
+    pet.name[0] = EEPROM.read(0x01);
+    pet.name[1] = EEPROM.read(0x02);
+    pet.name[2] = EEPROM.read(0x03);
+    pet.name[3] = EEPROM.read(0x04);
+    pet.name[4] = EEPROM.read(0x05);
+    pet.name[5] = EEPROM.read(0x06);
+    pet.name[6] = EEPROM.read(0x07);
+    pet.name[7] = EEPROM.read(0x08);
+    pet.name[8] = EEPROM.read(0x09);
+    pet.name[9] = EEPROM.read(0x0A);
+    pet.reset   = EEPROM.read(0x0B);
+}
+
+void save() {
+    EEPROM.write(0x00, pet.age);
+    EEPROM.write(0x01, pet.name[0]);
+    EEPROM.write(0x02, pet.name[1]);
+    EEPROM.write(0x03, pet.name[2]);
+    EEPROM.write(0x04, pet.name[3]);
+    EEPROM.write(0x05, pet.name[4]);
+    EEPROM.write(0x06, pet.name[5]);
+    EEPROM.write(0x07, pet.name[6]);
+    EEPROM.write(0x08, pet.name[7]);
+    EEPROM.write(0x09, pet.name[8]);
+    EEPROM.write(0x0A, pet.name[9]);
+    EEPROM.write(0x0B, pet.reset);
+}
+
+void reset() {
+    EEPROM.write(0x00, 0);
+    EEPROM.write(0x01, '\0');
+    EEPROM.write(0x02, '\0');
+    EEPROM.write(0x03, '\0');
+    EEPROM.write(0x04, '\0');
+    EEPROM.write(0x05, '\0');
+    EEPROM.write(0x06, '\0');
+    EEPROM.write(0x07, '\0');
+    EEPROM.write(0x08, '\0');
+    EEPROM.write(0x09, '\0');
+    EEPROM.write(0x0A, '\0');
+    EEPROM.write(0x0B, pet.reset);
+}
+
 // -------- Game state logic -------------
 
 void new_game() {
+    reset();
+    load_save();
     oled.clearDisplay();
     oled.setCursor(40, 30);
     oled.println("Welcome!");
@@ -337,6 +415,7 @@ void name_select() {
         selected = NULL;
     }
     gameState = GAME_MAIN;
+    pet.reset = false;
 }
 
 void game_main() {
@@ -350,7 +429,23 @@ void game_main() {
                     menu_index--;
             }
             if(button_pressed(BUTTON_B))
-                oled.println("B");
+            {
+                switch (menu_index)
+                {
+                case MENU_RESET:
+                    pet.reset = true;
+                    gameState = NEW_GAME;
+                    menu_index = 0;
+                    return;
+                case MENU_SAVE:
+                    save();
+                    break;
+                case MENU_RESTART:
+                    Reset_AVR();
+                default:
+                    break;
+                }
+            }
             if(button_pressed(BUTTON_C))
             {
                 oled.println("C");
@@ -378,6 +473,13 @@ int main() {
     
     // init_lcd(); 
     init_oled();
+
+    load_save();
+
+    if (!pet.reset)
+    {
+        gameState = GAME_MAIN;
+    }
     
     while(true) 
     {
