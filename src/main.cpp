@@ -16,10 +16,11 @@
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define OLED_RESET -1
 #define MENU_ITEMS 8
+#define MENU_ITEMS_LENGTH 8
 
 #define MAX_NAME_LENGTH 10
 
-
+#define CHECK_BIT(var,pos) ((var) & (1<<(pos))) // https://stackoverflow.com/questions/523724/c-c-check-if-one-bit-is-set-in-i-e-int-variable
 
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
@@ -30,7 +31,23 @@ boolean test = true;
 
 char alpha_inputs[] = {'?', '!', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'};
 
+char menu_entries[MENU_ITEMS][MENU_ITEMS_LENGTH] = {
+                        {'S','t','a','t','u','s','\0','\0'},
+                        {'F','e','e','d','\0','\0','\0','\0'},
+                        {'P','l','a','y','\0','\0','\0','\0'},
+                        {'P','e','t','\0','\0','\0','\0','\0'},
+                        {'B','r','u','s','h','\0','\0','\0'},
+                        {'S','F','a','t','u','s','\0','\0'},
+                        {'S','G','a','t','u','s','\0','\0'},
+                        {'O','p','t','i','o','n','s','\0'}
+                        };
+
+uint8_t menu_index = 0;
+
 uint8_t buttons = 0;
+
+uint8_t animationFrame = 0;
+uint8_t animationFrameLimit = 4;
 
 /**
  * @param baudrate - UART baudrate
@@ -38,14 +55,14 @@ uint8_t buttons = 0;
  */
 void UARTInit(uint32_t baudrate)
 {
-  uint16_t baud;
-  baud = ((float) (4000000UL * 64 /  ( 16 * (float)baudrate )) + 0.5 );
-  PORTMUX.USARTROUTEA = PORTMUX_USART1_ALT2_gc; // TxD PD6, RxD PD7
-  PORTD.DIRSET = PIN6_bm;
-  USART1.BAUD  = baud;
-  USART1.CTRLB = USART_TXEN_bm | USART_RXEN_bm;
-  USART1.CTRLC = PORTMUX_USART1_ALT2_gc | USART_PMODE_DISABLED_gc | USART_SBMODE_1BIT_gc | USART_CHSIZE_8BIT_gc;
-  USART1.CTRLA = 0;
+    uint16_t baud;
+    baud = ((float) (F_CPU * 64 /  ( 16 * (float)baudrate )) + 0.5 );
+    PORTMUX.USARTROUTEA = PORTMUX_USART1_ALT2_gc; // TxD PD6, RxD PD7
+    PORTD.DIRSET = PIN6_bm;
+    USART1.BAUD  = baud;
+    USART1.CTRLB = USART_TXEN_bm | USART_RXEN_bm;
+    USART1.CTRLC = PORTMUX_USART1_ALT2_gc | USART_PMODE_DISABLED_gc | USART_SBMODE_1BIT_gc | USART_CHSIZE_8BIT_gc;
+    USART1.CTRLA = 0;
 }
 
 /**
@@ -53,10 +70,10 @@ void UARTInit(uint32_t baudrate)
  */
 static int uart_putchar(char c)
 {
-  while (!(USART1.STATUS & USART_DREIF_bm)); // wait if still transmitting
+    while (!(USART1.STATUS & USART_DREIF_bm)); // wait if still transmitting
 
-  USART1.TXDATAL = c; // next byte into the send register
-  return 0;
+    USART1.TXDATAL = c; // next byte into the send register
+    return 0;
 }
 
 static int uart_putstring(char * strptr)
@@ -86,26 +103,41 @@ struct Pet {
 
 struct Pet pet;
 
-void drawMenu() {
-    for (int menuItem = 0; menuItem < 1; menuItem++) {
-        for (int row = 0; row < MENU_ITEM_DIMENSIONS; row++) {
-            for (int col = 0; col < MENU_ITEM_DIMENSIONS; col++) {
-                oled.drawPixel(col + menuItem * 16, row + 48, menu_status_bitmap[row][col]);
-            }
-        }
-    }
+void drawUI() {
+    oled.setCursor(0, 0);
+    oled.println(pet.age);
+    oled.setCursor(64, 56);
+    oled.println(pet.name);
+    oled.setCursor(0, 56);
+    oled.print(">");
+    oled.println(menu_entries[menu_index]);
 }
 
 void drawPet() {
-    for (int row = 0; row < PET_SPRITE_DIMENSIONS; row++) {
-        for (int col = 0; col < PET_SPRITE_DIMENSIONS; col++) {
-            oled.drawPixel(col + 48, row + 16, pet_sprite[row][col]);
+    uint8_t row, col, count = 0;
+    for (uint8_t sprite_byte = 0; sprite_byte < 4*PET_SPRITE_DIMENSIONS; sprite_byte++) {
+        uint8_t pixels = pgm_read_byte(&pet_sprite_idle[animationFrame][sprite_byte]);
+        if (pixels != 0) 
+        {
+            for (uint8_t pixel = 0; pixel < 8; pixel++)
+            {
+                if (CHECK_BIT(pixels, pixel)){
+                    oled.drawPixel(col*8 + 20 + pixel, row + 15, 1);
+                }
+            }
+        }
+        col++;
+        if (sprite_byte % 4 == 0)
+        {
+            col = 0;
+            row++;            
         }
     }
 }
 
+
 void set_cpu_freq() {
-    CLKCTRL.OSCHFCTRLA = CLKCTRL_FREQSEL_24M_gc | CLKCTRL_RUNSTDBY_bm;
+    CLKCTRL.OSCHFCTRLA = CLKCTRL_FREQSEL_8M_gc | CLKCTRL_RUNSTDBY_bm;
     while(!(CLKCTRL.MCLKSTATUS & CLKCTRL_OSCHFS_bm)) {
         // Wait until OSCHF is stable
     }
@@ -123,11 +155,7 @@ void init_pins() {
     PORTC.PIN6CTRL = PORT_PULLUPEN_bm;
     PORTC.PIN7CTRL = PORT_PULLUPEN_bm;
     PORTA.PIN0CTRL = PORT_PULLUPEN_bm;
-    PORTA.PIN1CTRL = PORT_PULLUPEN_bm;
-
-    // PORTC.PIN0CTRL |= PORT_ISC_BOTHEDGES_gc; 
-    // PORTC.PIN1CTRL |= PORT_ISC_BOTHEDGES_gc; 
-    // PORTC.PIN2CTRL |= PORT_ISC_BOTHEDGES_gc; 
+    PORTA.PIN1CTRL = PORT_PULLUPEN_bm; 
     sei();
 }
 
@@ -171,10 +199,6 @@ ISR(TCA0_OVF_vect) {
     }
 
     prev_buttons = tmp_buttons;
-    // char* str;
-    // itoa(tmp_buttons, str, 8);
-    // uart_putstring(str);
-    // uart_putchar('\n');
     // PORTC.OUT = ~PORTC.OUT;
     TCA0.SINGLE.INTFLAGS |= TCA_SINGLE_OVF_bm; // Reset interrupt flag
 }
@@ -192,22 +216,9 @@ void init_RTC() {
 ISR(RTC_PIT_vect)
 {
     pet.age++;
-    timeForScreenRefresh = true;
+    // timeForScreenRefresh = true;
     RTC.PITINTFLAGS = RTC_PI_bm ; // clear interrupt flag
 }
-
-// ISR(PORTC_PORT_vect)
-// {
-//     cli(); // Disable interrupts
-//     char* str;
-//     itoa(PORTC.INTFLAGS, str, 8);
-//     // uart_putstring(str);
-//     buttons = ~PORTC.IN;
-//     _delay_ms(10);
-
-//     PORTC.INTFLAGS |= BUTTON_A | BUTTON_B | BUTTON_C ; // clear interrupt flags
-//     sei(); // Re-enable interrupts
-// }
 
 bool button_pressed(int button) {
     return (buttons & button) != 0;
@@ -269,23 +280,22 @@ void name_select() {
                 oled.println();
                 oled.println(alpha_inputs[selection_index]);
                 oled.display();
-                _delay_ms(50);
             }
             // wait_for_button_press();
-            if(button_pressed(BUTTON_A)) {
+            if(button_pressed(BUTTON_A) && selection_index > 0) {
                 selection_index = (selection_index - 1);
                 uart_putstring("A pressed");
                 wait_for_button_released(BUTTON_A);
-            }
-            if(button_pressed(BUTTON_C)) {
-                selection_index = (selection_index + 1);
-                uart_putstring("C pressed");
-                wait_for_button_released(BUTTON_C);
             }
             if(button_pressed(BUTTON_B)) {
                 selected = alpha_inputs[selection_index];
                 uart_putstring("C pressed");
                 wait_for_button_released(BUTTON_B);
+            }
+            if(button_pressed(BUTTON_C) && selection_index < sizeof(alpha_inputs) / sizeof(char)) {
+                selection_index = (selection_index + 1);
+                uart_putstring("C pressed");
+                wait_for_button_released(BUTTON_C);
             }
             
         }
@@ -294,8 +304,11 @@ void name_select() {
             break;
         }
         if (selected == '!') {
-            char_number--;
-            pet.name[char_number] = NULL;
+            if (char_number > 0)
+            {
+                char_number--;
+                pet.name[char_number] = NULL;
+            }
             selected = NULL;
             continue;
         }
@@ -310,24 +323,22 @@ void game_main() {
     while(true) {
         if (timeForScreenRefresh) {
             oled.clearDisplay();
-            oled.setCursor(0, 0);
-            oled.println(pet.age);
-            oled.setCursor(64, 0);
-            oled.println(pet.name);
 
             if(button_pressed(BUTTON_A)) {
                 oled.println("A");
-                PORTC.OUT &= ~PIN3_bm;
-            }
-            else {
-                PORTC.OUT |= PIN3_bm;
+                if (menu_index > 0)
+                    menu_index--;
             }
             if(button_pressed(BUTTON_B))
                 oled.println("B");
             if(button_pressed(BUTTON_C))
+            {
                 oled.println("C");
+                if (menu_index < MENU_ITEMS - 1)
+                    menu_index++;
+            }
             drawPet();
-            drawMenu();
+            drawUI();
             oled.display();
             timeForScreenRefresh = false;
         }
@@ -335,14 +346,11 @@ void game_main() {
 }
 
 int main() {
-    //set_cpu_freq();
+    // set_cpu_freq();
     UARTInit(19200);
 
     _delay_ms(100);
-    uart_putstring("hello world"); 
-    uart_putchar('A');
-    uart_putchar('\n');
-
+    uart_putstring("hello world\n"); 
     
     init_timer();
     init_RTC();
@@ -382,5 +390,5 @@ int main() {
         }
         uart_putstring("While end");     
     }
-    uart_putstring("Exit main\n");
+    uart_putstring("Exit main??\n");
 }
