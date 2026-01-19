@@ -43,8 +43,8 @@ char menu_entries[MENU_ITEMS][MENU_ITEMS_LENGTH] = {
                         {'P','l','a','y','\0','\0','\0','\0'},
                         {'P','e','t','\0','\0','\0','\0','\0'},
                         {'B','r','u','s','h','\0','\0','\0'},
-                        {'R','e','s','e','t','\0','\0','\0'},
                         {'S','a','v','e','\0','\0','\0','\0'},
+                        {'R','e','s','e','t','\0','\0','\0'},
                         {'R','e','s','t','a','r','t','\0'}
                         };
 #define MENU_STATUS  0
@@ -52,8 +52,8 @@ char menu_entries[MENU_ITEMS][MENU_ITEMS_LENGTH] = {
 #define MENU_PLAY    2
 #define MENU_PET     3
 #define MENU_BRUSH   4
-#define MENU_RESET   5
-#define MENU_SAVE    6
+#define MENU_SAVE    5
+#define MENU_RESET   6
 #define MENU_RESTART 7
 
 uint8_t menu_index = 0;
@@ -119,7 +119,9 @@ STATE_MACHINE_t gameState = NEW_GAME;
 struct Pet {
     uint8_t age;
     char name[10] = NAME_DEFAULT;
-    bool reset = true; 
+    bool reset = true;
+    uint8_t happiness;
+    uint8_t hunger;
 };
 
 struct Pet pet;
@@ -158,6 +160,7 @@ void drawPet() {
     }
 }
 
+// -------------------- Init ------------------------------
 
 void set_cpu_freq() {
     CLKCTRL.OSCHFCTRLA = CLKCTRL_FREQSEL_8M_gc | CLKCTRL_RUNSTDBY_bm;
@@ -214,6 +217,16 @@ void init_timer() {
 
 }
 
+void init_RTC() {
+    uart_putstring("RTC init begin\n");
+    RTC.CTRLA = RTC_PRESCALER_DIV4096_gc; // Set prescaler to 1:1
+    RTC.CLKSEL = RTC_CLKSEL_OSC32K_gc; // Select the internal 32kHz osc
+    RTC.PITCTRLA = RTC_PITEN_bm | RTC_PERIOD_CYC4096_gc; // Enable PIT and set interrupt period
+    RTC.PITINTCTRL = RTC_PITEN_bm; // Enable PIT interrupts
+    sei();
+    uart_putstring("RTC init done\n");
+}
+
 // -------------- ISRs --------------------
 
 
@@ -243,16 +256,6 @@ ISR(TCB0_INT_vect) {
         animationDelay = 0;
     }
     TCB0.INTFLAGS |= TCB_OVF_bm; // Reset interrupt flag
-}
-
-void init_RTC() {
-    uart_putstring("RTC init begin\n");
-    RTC.CTRLA = RTC_PRESCALER_DIV4096_gc; // Set prescaler to 1:1
-    RTC.CLKSEL = RTC_CLKSEL_OSC32K_gc; // Select the internal 32kHz osc
-    RTC.PITCTRLA = RTC_PITEN_bm | RTC_PERIOD_CYC4096_gc; // Enable PIT and set interrupt period
-    RTC.PITINTCTRL = RTC_PITEN_bm; // Enable PIT interrupts
-    sei();
-    uart_putstring("RTC init done\n");
 }
 
 ISR(RTC_PIT_vect)
