@@ -38,15 +38,15 @@ char alpha_inputs[] = {'?', '!', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
                        's', 't', 'u', 'v', 'w', 'x', 'y', 'z'};
 
 char menu_entries[MENU_ITEMS][MENU_ITEMS_LENGTH] = {
-                        {'S','t','a','t','u','s','\0','\0'},
-                        {'F','e','e','d','\0','\0','\0','\0'},
-                        {'P','l','a','y','\0','\0','\0','\0'},
-                        {'P','e','t','\0','\0','\0','\0','\0'},
-                        {'B','r','u','s','h','\0','\0','\0'},
-                        {'S','a','v','e','\0','\0','\0','\0'},
-                        {'R','e','s','e','t','\0','\0','\0'},
-                        {'R','e','s','t','a','r','t','\0'}
-                        };
+                    {'S','t','a','t','u','s','\0','\0'},
+                    {'F','e','e','d','\0','\0','\0','\0'},
+                    {'P','l','a','y','\0','\0','\0','\0'},
+                    {'P','e','t','\0','\0','\0','\0','\0'},
+                    {'B','r','u','s','h','\0','\0','\0'},
+                    {'S','a','v','e','\0','\0','\0','\0'},
+                    {'R','e','s','e','t','\0','\0','\0'},
+                    {'R','e','s','t','a','r','t','\0'}
+                    };
 #define MENU_STATUS  0
 #define MENU_FEED    1
 #define MENU_PLAY    2
@@ -69,42 +69,9 @@ uint8_t animationDelay = 0;
 #define AGE_TIME 10
 uint8_t ageDelay = 0;
 
-/**
- * @param baudrate - UART baudrate
- * @brief initializes the UART module
- */
-void UARTInit(uint32_t baudrate)
-{
-    uint16_t baud;
-    baud = ((float) (F_CPU * 64 /  ( 16 * (float)baudrate )) + 0.5 );
-    PORTMUX.USARTROUTEA = PORTMUX_USART1_ALT2_gc; // TxD PD6, RxD PD7
-    PORTD.DIRSET = PIN6_bm;
-    USART1.BAUD  = baud;
-    USART1.CTRLB = USART_TXEN_bm | USART_RXEN_bm;
-    USART1.CTRLC = PORTMUX_USART1_ALT2_gc | USART_PMODE_DISABLED_gc | USART_SBMODE_1BIT_gc | USART_CHSIZE_8BIT_gc;
-    USART1.CTRLA = 0;
-}
+static int uart_putstring(char * strptr);
+static int uart_putchar(char c);
 
-/**
- * @param c - char/byte to send
- */
-static int uart_putchar(char c)
-{
-    while (!(USART1.STATUS & USART_DREIF_bm)); // wait if still transmitting
-
-    USART1.TXDATAL = c; // next byte into the send register
-    return 0;
-}
-
-static int uart_putstring(char * strptr)
-{
-    while (*strptr)
-        {
-            uart_putchar(*strptr);
-            strptr++;
-        }
-    return 0;
-}
 
 typedef enum STATE_MACHINE
 {
@@ -112,6 +79,9 @@ typedef enum STATE_MACHINE
     NAME_SELECT = 0x02,
     GAME_MAIN = 0x03,
     GAME_FEED = 0x04,
+    GAME_BRUSH = 0x05,
+    GAME_PLAY = 0x06,
+    GAME_STATUS = 0x07,
 } STATE_MACHINE_t;
 
 STATE_MACHINE_t gameState = NEW_GAME;
@@ -160,7 +130,95 @@ void drawPet() {
     }
 }
 
+void drawBrush() {
+    uint8_t row, col = 0;
+    for (uint8_t sprite_byte = 0; sprite_byte < 4*BRUSH_SPRITE_DIMENSIONS; sprite_byte++) {
+        uint8_t pixels = pgm_read_byte(&brush_sprite[animationFrame][sprite_byte]);
+        if (pixels != 0) 
+        {
+            for (uint8_t pixel = 0; pixel < 8; pixel++)
+            {
+                if (CHECK_BIT(pixels, pixel)){
+                    oled.drawPixel(col*8 + 60 + pixel, row + 15, 1);
+                }
+            }
+        }
+        col++;
+        if (col >= 4)
+        {
+            col = 0;
+            row++;            
+        }
+        if (row >= 32) // Not sure why this is needed, row is not reset to 0 between drawPet calls?
+            row = 0;
+    }
+}
+
+void drawBall() {
+    uint8_t row, col = 0;
+    for (uint8_t sprite_byte = 0; sprite_byte < 4*BALL_SPRITE_DIMENSIONS; sprite_byte++) {
+        uint8_t pixels = pgm_read_byte(&ball_sprite[animationFrame][sprite_byte]);
+        if (pixels != 0) 
+        {
+            for (uint8_t pixel = 0; pixel < 8; pixel++)
+            {
+                if (CHECK_BIT(pixels, pixel)){
+                    oled.drawPixel(col*8 + 90 + pixel, row, 1);
+                }
+            }
+        }
+        col++;
+        if (col >= 4)
+        {
+            col = 0;
+            row++;            
+        }
+        if (row >= 32) // Not sure why this is needed, row is not reset to 0 between drawPet calls?
+            row = 0;
+    }
+}
+
+void drawFood() {
+    uint8_t row, col = 0;
+    for (uint8_t sprite_byte = 0; sprite_byte < 4*FOOD_SPRITE_DIMENSIONS; sprite_byte++) {
+        uint8_t pixels = pgm_read_byte(&food_sprite[animationFrame][sprite_byte]);
+        if (pixels != 0) 
+        {
+            for (uint8_t pixel = 0; pixel < 8; pixel++)
+            {
+                if (CHECK_BIT(pixels, pixel)){
+                    oled.drawPixel(col*8 + 90 + pixel, row + 15, 1);
+                }
+            }
+        }
+        col++;
+        if (col >= 4)
+        {
+            col = 0;
+            row++;            
+        }
+        if (row >= 32) // Not sure why this is needed, row is not reset to 0 between drawPet calls?
+            row = 0;
+    }
+}
+
 // -------------------- Init ------------------------------
+
+/**
+ * @param baudrate - UART baudrate
+ * @brief initializes the UART module
+ */
+void UARTInit(uint32_t baudrate)
+{
+    uint16_t baud;
+    baud = ((float) (F_CPU * 64 /  ( 16 * (float)baudrate )) + 0.5 );
+    PORTMUX.USARTROUTEA = PORTMUX_USART1_ALT2_gc; // TxD PD6, RxD PD7
+    PORTD.DIRSET = PIN6_bm;
+    USART1.BAUD  = baud;
+    USART1.CTRLB = USART_TXEN_bm | USART_RXEN_bm;
+    USART1.CTRLC = PORTMUX_USART1_ALT2_gc | USART_PMODE_DISABLED_gc | USART_SBMODE_1BIT_gc | USART_CHSIZE_8BIT_gc;
+    USART1.CTRLA = 0;
+}
 
 void set_cpu_freq() {
     CLKCTRL.OSCHFCTRLA = CLKCTRL_FREQSEL_8M_gc | CLKCTRL_RUNSTDBY_bm;
@@ -227,6 +285,29 @@ void init_RTC() {
     uart_putstring("RTC init done\n");
 }
 
+
+// -------------- Serial ------------------
+/**
+ * @param c - char/byte to send
+ */
+static int uart_putchar(char c)
+{
+    while (!(USART1.STATUS & USART_DREIF_bm)); // wait if still transmitting
+
+    USART1.TXDATAL = c; // next byte into the send register
+    return 0;
+}
+
+static int uart_putstring(char * strptr)
+{
+    while (*strptr)
+        {
+            uart_putchar(*strptr);
+            strptr++;
+        }
+    return 0;
+}
+
 // -------------- ISRs --------------------
 
 
@@ -264,6 +345,10 @@ ISR(RTC_PIT_vect)
     if (ageDelay > AGE_TIME)
     {
         pet.age++;
+        if (pet.happiness > 0)
+                pet.happiness--;
+        if (pet.hunger < 254)
+            pet.hunger++;
         ageDelay = 0;
     }
     timeForScreenRefresh = true;
@@ -435,6 +520,18 @@ void game_main() {
             {
                 switch (menu_index)
                 {
+                case MENU_BRUSH:
+                    gameState = GAME_BRUSH;
+                    return;
+                case MENU_PLAY:
+                    gameState = GAME_PLAY;
+                    return;
+                case MENU_STATUS:
+                    gameState = GAME_STATUS;
+                    return;
+                case MENU_FEED:
+                    gameState = GAME_FEED;
+                    return;
                 case MENU_RESET:
                     pet.reset = true;
                     gameState = NEW_GAME;
@@ -462,6 +559,113 @@ void game_main() {
         }
     }
 }
+
+void pet_brush() {
+    wait_for_button_released(BUTTON_B);
+    while(true)
+    {
+        if(timeForScreenRefresh) 
+        {
+            if (pet.happiness < 254)
+                pet.happiness++;
+            oled.clearDisplay();
+            drawBrush();
+            drawPet();
+            drawUI();
+            oled.display();
+            timeForScreenRefresh = false;
+        }
+        if (button_pressed(BUTTON_A) |
+            button_pressed(BUTTON_B) |
+            button_pressed(BUTTON_C))
+            {
+                gameState = GAME_MAIN;
+                return;
+            }
+    }
+}
+
+void pet_play() {
+    wait_for_button_released(BUTTON_B);
+    while(true)
+    {
+        if(timeForScreenRefresh) 
+        {
+            if (pet.happiness < 254)
+                pet.happiness++;
+            oled.clearDisplay();
+            
+            drawPet();
+            
+            drawUI();
+            drawBall();
+            oled.display();
+            timeForScreenRefresh = false;
+        }
+        if (button_pressed(BUTTON_A) |
+            button_pressed(BUTTON_B) |
+            button_pressed(BUTTON_C))
+            {
+                gameState = GAME_MAIN;
+                return;
+            }
+    }
+}
+
+
+void pet_status() {
+    wait_for_button_released(BUTTON_B);
+    while (true)
+    {
+        if(timeForScreenRefresh) 
+        {
+            oled.clearDisplay();
+            drawUI();
+            oled.setCursor(0, 8);
+            oled.print("Age: ");
+            oled.println(pet.age);
+            oled.print("Happiness: ");
+            oled.println(pet.happiness);
+            oled.print("Hunger: ");
+            oled.println(pet.hunger);
+            oled.display();
+        }
+        if (button_pressed(BUTTON_A) |
+            button_pressed(BUTTON_B) |
+            button_pressed(BUTTON_C))
+            {
+                gameState = GAME_MAIN;
+                return;
+            }
+    }
+}
+
+void pet_feed() {
+    wait_for_button_released(BUTTON_B);
+    while(true)
+    {
+        if(timeForScreenRefresh) 
+        {
+            if (pet.hunger > 0)
+                pet.hunger--;
+            
+            oled.clearDisplay();
+            drawFood();
+            drawPet();
+            drawUI();
+            oled.display();
+            timeForScreenRefresh = false;
+        }
+        if (button_pressed(BUTTON_A) |
+            button_pressed(BUTTON_B) |
+            button_pressed(BUTTON_C))
+            {
+                gameState = GAME_MAIN;
+                return;
+            }
+    }
+}
+
 
 int main() {
     // set_cpu_freq();
@@ -508,6 +712,26 @@ int main() {
                 uart_putstring("Enter game main\n");
                 game_main();
                 uart_putstring("Exit game main\n");
+                break;
+            case GAME_BRUSH:
+                uart_putstring("Enter game brush\n");
+                pet_brush();
+                uart_putstring("Exit game brush\n");
+                break;
+            case GAME_PLAY:
+                uart_putstring("Enter game brush\n");
+                pet_play();
+                uart_putstring("Exit game brush\n");
+                break;
+            case GAME_STATUS:
+                uart_putstring("Enter game status\n");
+                pet_status();
+                uart_putstring("Exit game status\n");
+                break;
+            case GAME_FEED:
+                uart_putstring("Enter game feed\n");
+                pet_feed();
+                uart_putstring("Exit game feed\n");
                 break;
             default:
                 uart_putstring("You should not see this\n");
