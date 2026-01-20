@@ -115,122 +115,64 @@ void drawUI() {
     oled.println(menu_entries[menu_index]);
 }
 
-void drawPet() {
-    uint8_t row, col = 0;
-    for (uint8_t sprite_byte = 0; sprite_byte < 4*PET_SPRITE_DIMENSIONS; sprite_byte++) {
-        uint8_t pixels = pgm_read_byte(&pet_sprite_idle[animationFrame][sprite_byte]);
-        if (pixels != 0) 
-        {
-            for (uint8_t pixel = 0; pixel < 8; pixel++)
-            {
-                if (CHECK_BIT(pixels, pixel)){
-                    oled.drawPixel(col*8 + 48 + pixel, row + 15, 1);
-                }
-            }
-        }
-        col++;
-        if (col >= 4)
-        {
-            col = 0;
-            row++;            
-        }
-        if (row >= 32) // Not sure why this is needed, row is not reset to 0 between drawPet calls?
-            row = 0;
+void drawSprite(uint8_t sprite) {
+    uint8_t dimensions, offset_x, offset_y;
+    uint8_t *sprite_ptr;
+    switch (sprite)
+    {
+    case HAND_SPRITE:
+        dimensions = HAND_SPRITE_DIMENSIONS;
+        offset_x = 30;
+        offset_y = 15;
+        sprite_ptr = hand_sprite[0];
+        break;
+    case PET_SPRITE:
+        dimensions = PET_SPRITE_DIMENSIONS;
+        offset_x = 48;
+        offset_y = 15;
+        sprite_ptr = pet_sprite_idle[animationFrame];
+        break;
+    case BRUSH_SPRITE:
+        dimensions = BRUSH_SPRITE_DIMENSIONS;
+        offset_x = 60;
+        offset_y = 15;
+        sprite_ptr = brush_sprite[animationFrame];
+        break;
+    case FOOD_SPRITE:
+        dimensions = FOOD_SPRITE_DIMENSIONS;
+        offset_x = 90;
+        offset_y = 15;
+        sprite_ptr = food_sprite[animationFrame];
+        break;
+    case BALL_SPRITE:
+        dimensions = BALL_SPRITE_DIMENSIONS;
+        offset_x = 90;
+        offset_y = 15;
+        sprite_ptr = ball_sprite[animationFrame];
+        break;
+    default:
+        return;
     }
-}
 
-void drawBrush() {
     uint8_t row, col = 0;
-    for (uint8_t sprite_byte = 0; sprite_byte < 4*BRUSH_SPRITE_DIMENSIONS; sprite_byte++) {
-        uint8_t pixels = pgm_read_byte(&brush_sprite[animationFrame][sprite_byte]);
+    for (uint8_t sprite_byte = 0; sprite_byte < 4*dimensions; sprite_byte++) {
+        uint8_t pixels = pgm_read_byte(&sprite_ptr[sprite_byte]);
         if (pixels != 0) 
         {
             for (uint8_t pixel = 0; pixel < 8; pixel++)
             {
                 if (CHECK_BIT(pixels, pixel)){
-                    oled.drawPixel(col*8 + 60 + pixel, row + 15, 1);
+                    oled.drawPixel(col*8 + offset_x + pixel, row + offset_y, 1);
                 }
             }
         }
         col++;
-        if (col >= 4)
+        if (col >= dimensions/8)
         {
             col = 0;
             row++;            
         }
-        if (row >= 32) // Not sure why this is needed, row is not reset to 0 between drawPet calls?
-            row = 0;
-    }
-}
-
-void drawBall() {
-    uint8_t row, col = 0;
-    for (uint8_t sprite_byte = 0; sprite_byte < 4*BALL_SPRITE_DIMENSIONS; sprite_byte++) {
-        uint8_t pixels = pgm_read_byte(&ball_sprite[animationFrame][sprite_byte]);
-        if (pixels != 0) 
-        {
-            for (uint8_t pixel = 0; pixel < 8; pixel++)
-            {
-                if (CHECK_BIT(pixels, pixel)){
-                    oled.drawPixel(col*8 + 90 + pixel, row, 1);
-                }
-            }
-        }
-        col++;
-        if (col >= 4)
-        {
-            col = 0;
-            row++;            
-        }
-        if (row >= 32) // Not sure why this is needed, row is not reset to 0 between drawPet calls?
-            row = 0;
-    }
-}
-
-void drawFood() {
-    uint8_t row, col = 0;
-    for (uint8_t sprite_byte = 0; sprite_byte < 4*FOOD_SPRITE_DIMENSIONS; sprite_byte++) {
-        uint8_t pixels = pgm_read_byte(&food_sprite[animationFrame][sprite_byte]);
-        if (pixels != 0) 
-        {
-            for (uint8_t pixel = 0; pixel < 8; pixel++)
-            {
-                if (CHECK_BIT(pixels, pixel)){
-                    oled.drawPixel(col*8 + 90 + pixel, row + 15, 1);
-                }
-            }
-        }
-        col++;
-        if (col >= 4)
-        {
-            col = 0;
-            row++;            
-        }
-        if (row >= 32) // Not sure why this is needed, row is not reset to 0 between drawPet calls?
-            row = 0;
-    }
-}
-
-void drawHand() {
-    uint8_t row, col = 0;
-    for (uint8_t sprite_byte = 0; sprite_byte < 4*HAND_SPRITE_DIMENSIONS; sprite_byte++) {
-        uint8_t pixels = pgm_read_byte(&hand_sprite[0][sprite_byte]);
-        if (pixels != 0) 
-        {
-            for (uint8_t pixel = 0; pixel < 8; pixel++)
-            {
-                if (CHECK_BIT(pixels, pixel)){
-                    oled.drawPixel(col*8 + 30 + pixel, row + 15, 1);
-                }
-            }
-        }
-        col++;
-        if (col >= 4)
-        {
-            col = 0;
-            row++;            
-        }
-        if (row >= 32) // Not sure why this is needed, row is not reset to 0 between drawPet calls?
+        if (row >= dimensions) // Not sure why this is needed, row is not reset to 0 between drawPet calls?
             row = 0;
     }
 }
@@ -577,7 +519,7 @@ void game_main() {
                 if (menu_index < MENU_ITEMS - 1)
                     menu_index++;
             }
-            drawPet();
+            drawSprite(PET_SPRITE);
             drawUI();
             oled.display();
             timeForScreenRefresh = false;
@@ -595,8 +537,8 @@ void pet_brush() {
                 pet.happiness++;
             oled.clearDisplay();
             oled.setCursor(0, 0);
-            drawBrush();
-            drawPet();
+            drawSprite(BRUSH_SPRITE);
+            drawSprite(PET_SPRITE);
             drawUI();
             oled.display();
             timeForScreenRefresh = false;
@@ -621,9 +563,9 @@ void pet_play() {
                 pet.happiness++;
             oled.clearDisplay();
             oled.setCursor(0, 0);
-            drawPet();
+            drawSprite(PET_SPRITE);
             drawUI();
-            drawBall();
+            drawSprite(BALL_SPRITE);
             oled.display();
             timeForScreenRefresh = false;
         }
@@ -676,8 +618,8 @@ void pet_feed() {
             
             oled.clearDisplay();
             oled.setCursor(0, 0);
-            drawFood();
-            drawPet();
+            drawSprite(FOOD_SPRITE);
+            drawSprite(PET_SPRITE);
             drawUI();
             oled.display();
             timeForScreenRefresh = false;
@@ -703,8 +645,8 @@ void pet_pet() {
             
             oled.clearDisplay();
             oled.setCursor(0, 0);
-            drawHand();
-            drawPet();
+            drawSprite(HAND_SPRITE);
+            drawSprite(PET_SPRITE);
             drawUI();
             oled.display();
             timeForScreenRefresh = false;
