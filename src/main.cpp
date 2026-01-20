@@ -23,6 +23,14 @@
 #define MAX_NAME_LENGTH 10
 #define NAME_DEFAULT {'\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0'}
 
+#define EEPROM_PET_AGE_HIGH 0x00
+#define EEPROM_PET_AGE_LOW 0x01
+#define EEPROM_PET_NAME_START (EEPROM_PET_AGE_LOW + 1)
+#define EEPROM_PET_NAME_END (EEPROM_PET_NAME_START + MAX_NAME_LENGTH - 1)
+#define EEPROM_PET_RESET (EEPROM_PET_NAME_END + 1)
+#define EEPROM_PET_HAPPINESS (EEPROM_PET_RESET + 1)
+#define EEPROM_PET_HUNGER (EEPROM_PET_HAPPINESS + 1)
+
 #define CHECK_BIT(var,pos) ((var) & (1<<(pos))) // https://stackoverflow.com/questions/523724/c-c-check-if-one-bit-is-set-in-i-e-int-variable
 #define Reset_AVR() wdt_enable(WDTO_30MS); while(1) {} // https://support.microchip.com/s/article/Software-Reset-of-AVR-devices
 
@@ -82,12 +90,13 @@ typedef enum STATE_MACHINE
     GAME_BRUSH = 0x05,
     GAME_PLAY = 0x06,
     GAME_STATUS = 0x07,
+    GAME_PET = 0x08,
 } STATE_MACHINE_t;
 
 STATE_MACHINE_t gameState = NEW_GAME;
 
 struct Pet {
-    uint8_t age;
+    uint8_t age_high, age_low;
     char name[10] = NAME_DEFAULT;
     bool reset = true;
     uint8_t happiness;
@@ -98,7 +107,7 @@ struct Pet pet;
 
 void drawUI() {
     oled.setCursor(0, 0);
-    oled.println(pet.age);
+    oled.println(pet.age_high * UINT8_MAX + pet.age_low);
     oled.setCursor(64, 56);
     oled.println(pet.name);
     oled.setCursor(0, 56);
@@ -188,6 +197,30 @@ void drawFood() {
             {
                 if (CHECK_BIT(pixels, pixel)){
                     oled.drawPixel(col*8 + 90 + pixel, row + 15, 1);
+                }
+            }
+        }
+        col++;
+        if (col >= 4)
+        {
+            col = 0;
+            row++;            
+        }
+        if (row >= 32) // Not sure why this is needed, row is not reset to 0 between drawPet calls?
+            row = 0;
+    }
+}
+
+void drawHand() {
+    uint8_t row, col = 0;
+    for (uint8_t sprite_byte = 0; sprite_byte < 4*HAND_SPRITE_DIMENSIONS; sprite_byte++) {
+        uint8_t pixels = pgm_read_byte(&hand_sprite[0][sprite_byte]);
+        if (pixels != 0) 
+        {
+            for (uint8_t pixel = 0; pixel < 8; pixel++)
+            {
+                if (CHECK_BIT(pixels, pixel)){
+                    oled.drawPixel(col*8 + 30 + pixel, row + 15, 1);
                 }
             }
         }
@@ -344,10 +377,12 @@ ISR(RTC_PIT_vect)
     ageDelay++;
     if (ageDelay > AGE_TIME)
     {
-        pet.age++;
+        if (pet.age_low == UINT8_MAX)
+            pet.age_high++;
+        pet.age_low++;
         if (pet.happiness > 0)
                 pet.happiness--;
-        if (pet.hunger < 254)
+        if (pet.hunger < UINT8_MAX)
             pet.hunger++;
         ageDelay = 0;
     }
@@ -390,48 +425,33 @@ void wait_for_button_pressed_and_released(int button) {
 // -------------- EEPROM --------------------
 
 void load_save() {
-    pet.age     = EEPROM.read(0x00);
-    pet.name[0] = EEPROM.read(0x01);
-    pet.name[1] = EEPROM.read(0x02);
-    pet.name[2] = EEPROM.read(0x03);
-    pet.name[3] = EEPROM.read(0x04);
-    pet.name[4] = EEPROM.read(0x05);
-    pet.name[5] = EEPROM.read(0x06);
-    pet.name[6] = EEPROM.read(0x07);
-    pet.name[7] = EEPROM.read(0x08);
-    pet.name[8] = EEPROM.read(0x09);
-    pet.name[9] = EEPROM.read(0x0A);
-    pet.reset   = EEPROM.read(0x0B);
+    pet.age_high = EEPROM.read(EEPROM_PET_AGE_HIGH);
+    pet.age_low = EEPROM.read(EEPROM_PET_AGE_LOW);
+    for (uint8_t idx = EEPROM_PET_NAME_START; idx < EEPROM_PET_NAME_END; idx++)
+    {
+        pet.name[idx - 1] = EEPROM.read(idx);
+    }
+    pet.reset   = EEPROM.read(EEPROM_PET_RESET);
 }
 
 void save() {
-    EEPROM.write(0x00, pet.age);
-    EEPROM.write(0x01, pet.name[0]);
-    EEPROM.write(0x02, pet.name[1]);
-    EEPROM.write(0x03, pet.name[2]);
-    EEPROM.write(0x04, pet.name[3]);
-    EEPROM.write(0x05, pet.name[4]);
-    EEPROM.write(0x06, pet.name[5]);
-    EEPROM.write(0x07, pet.name[6]);
-    EEPROM.write(0x08, pet.name[7]);
-    EEPROM.write(0x09, pet.name[8]);
-    EEPROM.write(0x0A, pet.name[9]);
-    EEPROM.write(0x0B, pet.reset);
+    EEPROM.write(EEPROM_PET_AGE_HIGH, pet.age_high);
+    EEPROM.write(EEPROM_PET_AGE_LOW, pet.age_low);
+    for (uint8_t idx = EEPROM_PET_NAME_START; idx < EEPROM_PET_NAME_END; idx++)
+    {
+        EEPROM.write(idx, pet.name[idx - 1]);
+    }
+    EEPROM.write(EEPROM_PET_RESET, pet.reset);
 }
 
 void reset() {
-    EEPROM.write(0x00, 0);
-    EEPROM.write(0x01, '\0');
-    EEPROM.write(0x02, '\0');
-    EEPROM.write(0x03, '\0');
-    EEPROM.write(0x04, '\0');
-    EEPROM.write(0x05, '\0');
-    EEPROM.write(0x06, '\0');
-    EEPROM.write(0x07, '\0');
-    EEPROM.write(0x08, '\0');
-    EEPROM.write(0x09, '\0');
-    EEPROM.write(0x0A, '\0');
-    EEPROM.write(0x0B, pet.reset);
+    EEPROM.write(EEPROM_PET_AGE_HIGH, 0);
+    EEPROM.write(EEPROM_PET_AGE_LOW, 0);
+    for (uint8_t idx = EEPROM_PET_NAME_START; idx < EEPROM_PET_NAME_END; idx++)
+    {
+        EEPROM.write(idx, '\n');
+    }
+    EEPROM.write(EEPROM_PET_RESET, pet.reset);
 }
 
 // -------- Game state logic -------------
@@ -462,8 +482,10 @@ void name_select() {
                 oled.setCursor(0, 0);
                 oled.println("Enter name:");
                 for (uint8_t i = 0; i < MAX_NAME_LENGTH; i++)
+                {
                     oled.print(pet.name[i]);
-                oled.println();
+                }
+                oled.setCursor(0, 16);
                 oled.println(alpha_inputs[selection_index]);
                 oled.display();
             }
@@ -532,6 +554,9 @@ void game_main() {
                 case MENU_FEED:
                     gameState = GAME_FEED;
                     return;
+                case MENU_PET:
+                    gameState = GAME_PET;
+                    return;
                 case MENU_RESET:
                     pet.reset = true;
                     gameState = NEW_GAME;
@@ -566,9 +591,10 @@ void pet_brush() {
     {
         if(timeForScreenRefresh) 
         {
-            if (pet.happiness < 254)
+            if (pet.happiness < UINT8_MAX)
                 pet.happiness++;
             oled.clearDisplay();
+            oled.setCursor(0, 0);
             drawBrush();
             drawPet();
             drawUI();
@@ -591,12 +617,11 @@ void pet_play() {
     {
         if(timeForScreenRefresh) 
         {
-            if (pet.happiness < 254)
+            if (pet.happiness < UINT8_MAX)
                 pet.happiness++;
             oled.clearDisplay();
-            
+            oled.setCursor(0, 0);
             drawPet();
-            
             drawUI();
             drawBall();
             oled.display();
@@ -623,7 +648,7 @@ void pet_status() {
             drawUI();
             oled.setCursor(0, 8);
             oled.print("Age: ");
-            oled.println(pet.age);
+            oled.println(pet.age_high * UINT8_MAX + pet.age_low);
             oled.print("Happiness: ");
             oled.println(pet.happiness);
             oled.print("Hunger: ");
@@ -650,7 +675,35 @@ void pet_feed() {
                 pet.hunger--;
             
             oled.clearDisplay();
+            oled.setCursor(0, 0);
             drawFood();
+            drawPet();
+            drawUI();
+            oled.display();
+            timeForScreenRefresh = false;
+        }
+        if (button_pressed(BUTTON_A) |
+            button_pressed(BUTTON_B) |
+            button_pressed(BUTTON_C))
+            {
+                gameState = GAME_MAIN;
+                return;
+            }
+    }
+}
+
+void pet_pet() {
+    wait_for_button_released(BUTTON_B);
+    while(true)
+    {
+        if(timeForScreenRefresh) 
+        {
+            if (pet.happiness < UINT8_MAX)
+                pet.happiness++;
+            
+            oled.clearDisplay();
+            oled.setCursor(0, 0);
+            drawHand();
             drawPet();
             drawUI();
             oled.display();
@@ -722,6 +775,11 @@ int main() {
                 uart_putstring("Enter game brush\n");
                 pet_play();
                 uart_putstring("Exit game brush\n");
+                break;
+            case GAME_PET:
+                uart_putstring("Enter game pet\n");
+                pet_pet();
+                uart_putstring("Exit game pet\n");
                 break;
             case GAME_STATUS:
                 uart_putstring("Enter game status\n");
