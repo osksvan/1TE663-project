@@ -1,3 +1,8 @@
+/*
+Project for course in 1TE663 course at Uppsala University
+@author Oskar Svanström 2026
+*/
+
 #include "bitmaps.h"
 #include <avr/io.h>
 #include <util/delay.h>
@@ -13,7 +18,7 @@
 #define BUTTON_A PIN2_bm
 #define BUTTON_B PIN1_bm
 #define BUTTON_C PIN0_bm
-#define BUZZER_PIN 5
+#define BUZZER_PIN PIN3_bm
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define OLED_RESET -1
@@ -38,23 +43,23 @@
 Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 int menuIndex = 0;
-volatile boolean timeForScreenRefresh = true;
 boolean test = true;
 
 char alpha_inputs[] = {'?', '!', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 
                        'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 
                        's', 't', 'u', 'v', 'w', 'x', 'y', 'z'};
 
-char menu_entries[MENU_ITEMS][MENU_ITEMS_LENGTH] = {
-                    {'S','t','a','t','u','s','\0','\0'},
-                    {'F','e','e','d','\0','\0','\0','\0'},
-                    {'P','l','a','y','\0','\0','\0','\0'},
-                    {'P','e','t','\0','\0','\0','\0','\0'},
-                    {'B','r','u','s','h','\0','\0','\0'},
-                    {'S','a','v','e','\0','\0','\0','\0'},
-                    {'R','e','s','e','t','\0','\0','\0'},
-                    {'R','e','s','t','a','r','t','\0'}
-                    };
+char menu_entries[MENU_ITEMS][MENU_ITEMS_LENGTH] = 
+{
+    {'S','t','a','t','u','s','\0','\0'},
+    {'F','e','e','d','\0','\0','\0','\0'},
+    {'P','l','a','y','\0','\0','\0','\0'},
+    {'P','e','t','\0','\0','\0','\0','\0'},
+    {'B','r','u','s','h','\0','\0','\0'},
+    {'S','a','v','e','\0','\0','\0','\0'},
+    {'R','e','s','e','t','\0','\0','\0'},
+    {'R','e','s','t','a','r','t','\0'}
+};
 #define MENU_STATUS  0
 #define MENU_FEED    1
 #define MENU_PLAY    2
@@ -70,12 +75,13 @@ uint8_t menu_index = 0;
 uint8_t buttons = 0;
 
 uint8_t animationFrame = 0;
-uint8_t animationFrameLimit = 4;
 
 #define ANIMATION_TIME 20
 uint8_t animationDelay = 0;
 #define AGE_TIME 10
 uint8_t ageDelay = 0;
+
+bool buzzerToggle = true;
 
 static int uart_putstring(char * strptr);
 static int uart_putchar(char c);
@@ -122,39 +128,39 @@ void drawSprite(uint8_t sprite) {
     {
     case HAND_SPRITE:
         dimensions = HAND_SPRITE_DIMENSIONS;
-        offset_x = 30;
+        offset_x = 65;
         offset_y = 15;
-        sprite_ptr = hand_sprite[0];
+        sprite_ptr = hand_sprite[animationFrame % HAND_NUM_FRAMES];
         break;
     case PET_SPRITE:
         dimensions = PET_SPRITE_DIMENSIONS;
         offset_x = 48;
         offset_y = 15;
-        sprite_ptr = pet_sprite_idle[animationFrame];
+        sprite_ptr = pet_sprite_idle[animationFrame % PET_NUM_FRAMES];
         break;
     case BRUSH_SPRITE:
         dimensions = BRUSH_SPRITE_DIMENSIONS;
         offset_x = 60;
         offset_y = 15;
-        sprite_ptr = brush_sprite[animationFrame];
+        sprite_ptr = brush_sprite[animationFrame % BRUSH_NUM_FRAMES];
         break;
     case FOOD_SPRITE:
         dimensions = FOOD_SPRITE_DIMENSIONS;
-        offset_x = 90;
+        offset_x = 70;
         offset_y = 15;
-        sprite_ptr = food_sprite[animationFrame];
+        sprite_ptr = food_sprite[animationFrame % FOOD_NUM_FRAMES];
         break;
     case BALL_SPRITE:
         dimensions = BALL_SPRITE_DIMENSIONS;
-        offset_x = 90;
+        offset_x = 70;
         offset_y = 15;
-        sprite_ptr = ball_sprite[animationFrame];
+        sprite_ptr = ball_sprite[animationFrame % BALL_NUM_FRAMES];
         break;
     default:
         return;
     }
 
-    uint8_t row, col = 0;
+    uint8_t row = 0, col = 0;
     for (uint8_t sprite_byte = 0; sprite_byte < 4*dimensions; sprite_byte++) {
         uint8_t pixels = pgm_read_byte(&sprite_ptr[sprite_byte]);
         if (pixels != 0) 
@@ -195,20 +201,11 @@ void UARTInit(uint32_t baudrate)
     USART1.CTRLA = 0;
 }
 
-void set_cpu_freq() {
-    CLKCTRL.OSCHFCTRLA = CLKCTRL_FREQSEL_8M_gc | CLKCTRL_RUNSTDBY_bm;
-    while(!(CLKCTRL.MCLKSTATUS & CLKCTRL_OSCHFS_bm)) {
-        // Wait until OSCHF is stable
-    }
-    CLKCTRL.MCLKCTRLA |= CLKSEL_OSCHF_gc;
-}
-
 void init_pins() {
-    PORTC.DIR = PIN3_bm; // Port C output on PC3 (Buzzer)
+    PORTC.DIR = BUZZER_PIN; // Port C output on PC3 (Buzzer)
     PORTC.PIN0CTRL = PORT_PULLUPEN_bm; // PC0 pullup (button A)
     PORTC.PIN1CTRL = PORT_PULLUPEN_bm; // PC1 pullup (button B)
     PORTC.PIN2CTRL = PORT_PULLUPEN_bm; // PC2 pullup (button C)
-    PORTC.PIN3CTRL = PORT_PULLUPEN_bm;
     PORTC.PIN4CTRL = PORT_PULLUPEN_bm;
     PORTC.PIN5CTRL = PORT_PULLUPEN_bm;
     PORTC.PIN6CTRL = PORT_PULLUPEN_bm;
@@ -285,7 +282,6 @@ static int uart_putstring(char * strptr)
 
 // -------------- ISRs --------------------
 
-
 ISR(TCA0_OVF_vect) {
     // Perform a rudimentary button debouncing, inspired by
     // https://stackoverflow.com/questions/74357807/how-do-i-debounce-a-switch-in-c
@@ -299,7 +295,6 @@ ISR(TCA0_OVF_vect) {
     }
 
     prev_buttons = tmp_buttons;
-    // PORTC.OUT = ~PORTC.OUT;
     TCA0.SINGLE.INTFLAGS |= TCA_SINGLE_OVF_bm; // Reset interrupt flag
 }
 
@@ -307,9 +302,23 @@ ISR(TCB0_INT_vect) {
     animationDelay++;
     if (animationDelay > ANIMATION_TIME)
     {
-        animationFrame += 1;
-        animationFrame = animationFrame % animationFrameLimit;
+        animationFrame++;
         animationDelay = 0;
+        if (pet.happiness < 10 | pet.hunger > 10)
+        {
+            if (buzzerToggle)
+                {
+                    buzzerToggle = !buzzerToggle;
+                    PORTC.OUT &= ~0b00001000; // Buzzer ON
+                }
+            else
+                {
+                    buzzerToggle = !buzzerToggle;
+                    PORTC.OUT |= 0b00001000; // Buzzer OFF
+                }
+        }
+        else
+           PORTC.OUT |= 0b00001000; // Buzzer OFF
     }
     TCB0.INTFLAGS |= TCB_OVF_bm; // Reset interrupt flag
 }
@@ -328,7 +337,6 @@ ISR(RTC_PIT_vect)
             pet.hunger++;
         ageDelay = 0;
     }
-    timeForScreenRefresh = true;
     RTC.PITINTFLAGS = RTC_PI_bm ; // clear interrupt flag
 }
 
@@ -373,7 +381,9 @@ void load_save() {
     {
         pet.name[idx - 1] = EEPROM.read(idx);
     }
-    pet.reset   = EEPROM.read(EEPROM_PET_RESET);
+    pet.reset = EEPROM.read(EEPROM_PET_RESET);
+    pet.hunger = EEPROM.read(EEPROM_PET_HUNGER);
+    pet.happiness = EEPROM.read(EEPROM_PET_HAPPINESS);
 }
 
 void save() {
@@ -384,6 +394,8 @@ void save() {
         EEPROM.write(idx, pet.name[idx - 1]);
     }
     EEPROM.write(EEPROM_PET_RESET, pet.reset);
+    EEPROM.write(EEPROM_PET_HUNGER, pet.hunger);
+    EEPROM.write(EEPROM_PET_HAPPINESS, pet.happiness);
 }
 
 void reset() {
@@ -394,6 +406,8 @@ void reset() {
         EEPROM.write(idx, '\n');
     }
     EEPROM.write(EEPROM_PET_RESET, pet.reset);
+    EEPROM.write(EEPROM_PET_HUNGER, 0);
+    EEPROM.write(EEPROM_PET_HAPPINESS, 0);
 }
 
 // -------- Game state logic -------------
@@ -416,21 +430,19 @@ void name_select() {
     while (char_number < MAX_NAME_LENGTH) {
         char selected = NULL;
         uint8_t selection_index = 1;
-        timeForScreenRefresh = true;
         while (!selected) 
         {
-            if (timeForScreenRefresh) {
-                oled.clearDisplay();
-                oled.setCursor(0, 0);
-                oled.println("Enter name:");
-                for (uint8_t i = 0; i < MAX_NAME_LENGTH; i++)
-                {
-                    oled.print(pet.name[i]);
-                }
-                oled.setCursor(0, 16);
-                oled.println(alpha_inputs[selection_index]);
-                oled.display();
+            oled.clearDisplay();
+            oled.setCursor(0, 0);
+            oled.println("Enter name:");
+            for (uint8_t i = 0; i < MAX_NAME_LENGTH; i++)
+            {
+                oled.print(pet.name[i]);
             }
+            oled.setCursor(0, 16);
+            oled.println(alpha_inputs[selection_index]);
+            oled.display();
+
             // wait_for_button_press();
             if(button_pressed(BUTTON_A) && selection_index > 0) {
                 selection_index = (selection_index - 1);
@@ -472,58 +484,55 @@ void name_select() {
 
 void game_main() {
     while(true) {
-        if (timeForScreenRefresh) {
-            oled.clearDisplay();
+        oled.clearDisplay();
 
-            if(button_pressed(BUTTON_A)) {
-                oled.println("A");
-                if (menu_index > 0)
-                    menu_index--;
-            }
-            if(button_pressed(BUTTON_B))
-            {
-                switch (menu_index)
-                {
-                case MENU_BRUSH:
-                    gameState = GAME_BRUSH;
-                    return;
-                case MENU_PLAY:
-                    gameState = GAME_PLAY;
-                    return;
-                case MENU_STATUS:
-                    gameState = GAME_STATUS;
-                    return;
-                case MENU_FEED:
-                    gameState = GAME_FEED;
-                    return;
-                case MENU_PET:
-                    gameState = GAME_PET;
-                    return;
-                case MENU_RESET:
-                    pet.reset = true;
-                    gameState = NEW_GAME;
-                    menu_index = 0;
-                    return;
-                case MENU_SAVE:
-                    save();
-                    break;
-                case MENU_RESTART:
-                    Reset_AVR();
-                default:
-                    break;
-                }
-            }
-            if(button_pressed(BUTTON_C))
-            {
-                oled.println("C");
-                if (menu_index < MENU_ITEMS - 1)
-                    menu_index++;
-            }
-            drawSprite(PET_SPRITE);
-            drawUI();
-            oled.display();
-            timeForScreenRefresh = false;
+        if(button_pressed(BUTTON_A)) {
+            oled.println("A");
+            if (menu_index > 0)
+                menu_index--;
         }
+        if(button_pressed(BUTTON_B))
+        {
+            switch (menu_index)
+            {
+            case MENU_BRUSH:
+                gameState = GAME_BRUSH;
+                return;
+            case MENU_PLAY:
+                gameState = GAME_PLAY;
+                return;
+            case MENU_STATUS:
+                gameState = GAME_STATUS;
+                return;
+            case MENU_FEED:
+                gameState = GAME_FEED;
+                return;
+            case MENU_PET:
+                gameState = GAME_PET;
+                return;
+            case MENU_RESET:
+                pet.reset = true;
+                gameState = NEW_GAME;
+                menu_index = 0;
+                return;
+            case MENU_SAVE:
+                save();
+                break;
+            case MENU_RESTART:
+                Reset_AVR();
+            default:
+                break;
+            }
+        }
+        if(button_pressed(BUTTON_C))
+        {
+            oled.println("C");
+            if (menu_index < MENU_ITEMS - 1)
+                menu_index++;
+        }
+        drawSprite(PET_SPRITE);
+        drawUI();
+        oled.display();
     }
 }
 
@@ -531,25 +540,21 @@ void pet_brush() {
     wait_for_button_released(BUTTON_B);
     while(true)
     {
-        if(timeForScreenRefresh) 
+        if (pet.happiness < UINT8_MAX)
+            pet.happiness++;
+        oled.clearDisplay();
+        oled.setCursor(0, 0);
+        drawSprite(BRUSH_SPRITE);
+        drawSprite(PET_SPRITE);
+        drawUI();
+        oled.display();
+    if (button_pressed(BUTTON_A) |
+        button_pressed(BUTTON_B) |
+        button_pressed(BUTTON_C))
         {
-            if (pet.happiness < UINT8_MAX)
-                pet.happiness++;
-            oled.clearDisplay();
-            oled.setCursor(0, 0);
-            drawSprite(BRUSH_SPRITE);
-            drawSprite(PET_SPRITE);
-            drawUI();
-            oled.display();
-            timeForScreenRefresh = false;
+            gameState = GAME_MAIN;
+            return;
         }
-        if (button_pressed(BUTTON_A) |
-            button_pressed(BUTTON_B) |
-            button_pressed(BUTTON_C))
-            {
-                gameState = GAME_MAIN;
-                return;
-            }
     }
 }
 
@@ -557,25 +562,21 @@ void pet_play() {
     wait_for_button_released(BUTTON_B);
     while(true)
     {
-        if(timeForScreenRefresh) 
+        if (pet.happiness < UINT8_MAX)
+            pet.happiness++;
+        oled.clearDisplay();
+        oled.setCursor(0, 0);
+        drawSprite(PET_SPRITE);
+        drawUI();
+        drawSprite(BALL_SPRITE);
+        oled.display();
+    if (button_pressed(BUTTON_A) |
+        button_pressed(BUTTON_B) |
+        button_pressed(BUTTON_C))
         {
-            if (pet.happiness < UINT8_MAX)
-                pet.happiness++;
-            oled.clearDisplay();
-            oled.setCursor(0, 0);
-            drawSprite(PET_SPRITE);
-            drawUI();
-            drawSprite(BALL_SPRITE);
-            oled.display();
-            timeForScreenRefresh = false;
+            gameState = GAME_MAIN;
+            return;
         }
-        if (button_pressed(BUTTON_A) |
-            button_pressed(BUTTON_B) |
-            button_pressed(BUTTON_C))
-            {
-                gameState = GAME_MAIN;
-                return;
-            }
     }
 }
 
@@ -584,26 +585,23 @@ void pet_status() {
     wait_for_button_released(BUTTON_B);
     while (true)
     {
-        if(timeForScreenRefresh) 
+        oled.clearDisplay();
+        drawUI();
+        oled.setCursor(0, 8);
+        oled.print("Age: ");
+        oled.println(pet.age_high * UINT8_MAX + pet.age_low);
+        oled.print("Happiness: ");
+        oled.println(pet.happiness);
+        oled.print("Hunger: ");
+        oled.println(pet.hunger);
+        oled.display();
+    if (button_pressed(BUTTON_A) |
+        button_pressed(BUTTON_B) |
+        button_pressed(BUTTON_C))
         {
-            oled.clearDisplay();
-            drawUI();
-            oled.setCursor(0, 8);
-            oled.print("Age: ");
-            oled.println(pet.age_high * UINT8_MAX + pet.age_low);
-            oled.print("Happiness: ");
-            oled.println(pet.happiness);
-            oled.print("Hunger: ");
-            oled.println(pet.hunger);
-            oled.display();
+            gameState = GAME_MAIN;
+            return;
         }
-        if (button_pressed(BUTTON_A) |
-            button_pressed(BUTTON_B) |
-            button_pressed(BUTTON_C))
-            {
-                gameState = GAME_MAIN;
-                return;
-            }
     }
 }
 
@@ -611,26 +609,22 @@ void pet_feed() {
     wait_for_button_released(BUTTON_B);
     while(true)
     {
-        if(timeForScreenRefresh) 
+        if (pet.hunger > 0)
+            pet.hunger--;
+        
+        oled.clearDisplay();
+        oled.setCursor(0, 0);
+        drawSprite(FOOD_SPRITE);
+        drawSprite(PET_SPRITE);
+        drawUI();
+        oled.display();
+    if (button_pressed(BUTTON_A) |
+        button_pressed(BUTTON_B) |
+        button_pressed(BUTTON_C))
         {
-            if (pet.hunger > 0)
-                pet.hunger--;
-            
-            oled.clearDisplay();
-            oled.setCursor(0, 0);
-            drawSprite(FOOD_SPRITE);
-            drawSprite(PET_SPRITE);
-            drawUI();
-            oled.display();
-            timeForScreenRefresh = false;
+            gameState = GAME_MAIN;
+            return;
         }
-        if (button_pressed(BUTTON_A) |
-            button_pressed(BUTTON_B) |
-            button_pressed(BUTTON_C))
-            {
-                gameState = GAME_MAIN;
-                return;
-            }
     }
 }
 
@@ -638,32 +632,27 @@ void pet_pet() {
     wait_for_button_released(BUTTON_B);
     while(true)
     {
-        if(timeForScreenRefresh) 
+        if (pet.happiness < UINT8_MAX)
+            pet.happiness++;
+        
+        oled.clearDisplay();
+        oled.setCursor(0, 0);
+        drawSprite(HAND_SPRITE);
+        drawSprite(PET_SPRITE);
+        drawUI();
+        oled.display();
+    if (button_pressed(BUTTON_A) |
+        button_pressed(BUTTON_B) |
+        button_pressed(BUTTON_C))
         {
-            if (pet.happiness < UINT8_MAX)
-                pet.happiness++;
-            
-            oled.clearDisplay();
-            oled.setCursor(0, 0);
-            drawSprite(HAND_SPRITE);
-            drawSprite(PET_SPRITE);
-            drawUI();
-            oled.display();
-            timeForScreenRefresh = false;
+            gameState = GAME_MAIN;
+            return;
         }
-        if (button_pressed(BUTTON_A) |
-            button_pressed(BUTTON_B) |
-            button_pressed(BUTTON_C))
-            {
-                gameState = GAME_MAIN;
-                return;
-            }
     }
 }
 
 
 int main() {
-    // set_cpu_freq();
     UARTInit(19200);
 
     _delay_ms(100);
@@ -673,7 +662,6 @@ int main() {
     init_RTC();
     init_pins();
     
-    // init_lcd(); 
     init_oled();
 
     load_save();
