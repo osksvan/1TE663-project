@@ -13,8 +13,6 @@ Project for course in 1TE663 course at Uppsala University
 
 #include <Adafruit_SSD1306.h>
 
-
-// #define LED_BUILTIN 8 
 #define BUTTON_A PIN2_bm
 #define BUTTON_B PIN1_bm
 #define BUTTON_C PIN0_bm
@@ -74,15 +72,19 @@ uint8_t menu_index = 0;
 
 uint8_t buttons = 0;
 
-uint8_t animationFrame = 0;
+uint8_t animation_frame = 0;
 uint8_t pet_evolution_stage = 0;
 
 #define ANIMATION_TIME 20
-uint8_t animationDelay = 0;
+uint8_t animation_timer = 0;
 #define AGE_TIME 10
-uint8_t ageDelay = 0;
+uint8_t age_timer = 0;
 
-bool buzzerToggle = true;
+
+#define BUTTON_DEBOUNCE 10
+uint8_t button_timer = 0;
+
+bool buzzer_state = true;
 
 static int uart_putstring(char * strptr);
 static int uart_putchar(char c);
@@ -131,31 +133,31 @@ void drawSprite(uint8_t sprite) {
         dimensions = HAND_SPRITE_DIMENSIONS;
         offset_x = 65;
         offset_y = 15;
-        sprite_ptr = hand_sprite[animationFrame % HAND_NUM_FRAMES];
+        sprite_ptr = hand_sprite[animation_frame % HAND_NUM_FRAMES];
         break;
     case PET_SPRITE:
         dimensions = PET_SPRITE_DIMENSIONS;
         offset_x = 48;
         offset_y = 15;
-        sprite_ptr = pet_sprite[pet_evolution_stage][animationFrame % PET_NUM_FRAMES];
+        sprite_ptr = pet_sprite[pet_evolution_stage][animation_frame % PET_NUM_FRAMES];
         break;
     case BRUSH_SPRITE:
         dimensions = BRUSH_SPRITE_DIMENSIONS;
         offset_x = 60;
         offset_y = 15;
-        sprite_ptr = brush_sprite[animationFrame % BRUSH_NUM_FRAMES];
+        sprite_ptr = brush_sprite[animation_frame % BRUSH_NUM_FRAMES];
         break;
     case FOOD_SPRITE:
         dimensions = FOOD_SPRITE_DIMENSIONS;
         offset_x = 70;
         offset_y = 15;
-        sprite_ptr = food_sprite[animationFrame % FOOD_NUM_FRAMES];
+        sprite_ptr = food_sprite[animation_frame % FOOD_NUM_FRAMES];
         break;
     case BALL_SPRITE:
         dimensions = BALL_SPRITE_DIMENSIONS;
         offset_x = 70;
         offset_y = 15;
-        sprite_ptr = ball_sprite[animationFrame % BALL_NUM_FRAMES];
+        sprite_ptr = ball_sprite[animation_frame % BALL_NUM_FRAMES];
         break;
     default:
         return;
@@ -209,6 +211,11 @@ void init_pins() {
     PORTC.PIN2CTRL = PORT_PULLUPEN_bm; // PC2 pullup (button C)
     PORTA.PIN0CTRL = PORT_PULLUPEN_bm;
     PORTA.PIN1CTRL = PORT_PULLUPEN_bm; 
+
+    PORTC.PIN0CTRL |= PORT_ISC_BOTHEDGES_gc; 
+    PORTC.PIN1CTRL |= PORT_ISC_BOTHEDGES_gc; 
+    PORTC.PIN2CTRL |= PORT_ISC_BOTHEDGES_gc; 
+
     sei();
 }
 
@@ -231,7 +238,7 @@ void init_oled() {
 void init_timer() {
     uart_putstring("Timer init begin\n");
     TCA0.SINGLE.CTRLA = TCA_SINGLE_ENABLE_bm 
-                      | TCA_SINGLE_CLKSEL_DIV2_gc; // Sys clock / 2 = 2MHz
+                      | TCA_SINGLE_CLKSEL_DIV1_gc;
 
     TCA0.SINGLE.INTCTRL = 0x1;
 
@@ -280,37 +287,37 @@ static int uart_putstring(char * strptr)
 // -------------- ISRs --------------------
 
 ISR(TCA0_OVF_vect) {
-    // Perform a rudimentary button debouncing, inspired by
-    // https://stackoverflow.com/questions/74357807/how-do-i-debounce-a-switch-in-c
-    static uint8_t prev_buttons;
-    uint8_t tmp_buttons;
-    tmp_buttons = ~PORTC.IN & (BUTTON_A | BUTTON_B | BUTTON_C);
-
-    if (tmp_buttons == prev_buttons)
+    cli();
+    if (button_timer > 0)
+        {
+            button_timer--;
+        }
+    if (button_timer == 0 && (PORTC.IN & (BUTTON_A | BUTTON_B | BUTTON_C)))
     {
-        buttons = tmp_buttons;
+        buttons = 0;
     }
 
-    prev_buttons = tmp_buttons;
     TCA0.SINGLE.INTFLAGS |= TCA_SINGLE_OVF_bm; // Reset interrupt flag
+    sei();
 }
 
 ISR(TCB0_INT_vect) {
-    animationDelay++;
-    if (animationDelay > ANIMATION_TIME)
+    cli();
+    animation_timer++;
+    if (animation_timer > ANIMATION_TIME)
     {
-        animationFrame++;
-        animationDelay = 0;
+        animation_frame++;
+        animation_timer = 0;
         if (pet.happiness < 10 | pet.hunger > 10)
         {
-            if (buzzerToggle)
+            if (buzzer_state)
                 {
-                    buzzerToggle = !buzzerToggle;
+                    buzzer_state = !buzzer_state;
                     PORTC.OUT &= ~0b00001000; // Buzzer ON
                 }
             else
                 {
-                    buzzerToggle = !buzzerToggle;
+                    buzzer_state = !buzzer_state;
                     PORTC.OUT |= 0b00001000; // Buzzer OFF
                 }
         }
@@ -318,12 +325,13 @@ ISR(TCB0_INT_vect) {
            PORTC.OUT |= 0b00001000; // Buzzer OFF
     }
     TCB0.INTFLAGS |= TCB_OVF_bm; // Reset interrupt flag
+    sei();
 }
 
 ISR(RTC_PIT_vect)
 {
-    ageDelay++;
-    if (ageDelay > AGE_TIME)
+    age_timer++;
+    if (age_timer > AGE_TIME)
     {
         if (pet.age_low == UINT8_MAX)
             {
@@ -336,9 +344,24 @@ ISR(RTC_PIT_vect)
                 pet.happiness--;
         if (pet.hunger < UINT8_MAX)
             pet.hunger++;
-        ageDelay = 0;
+        age_timer = 0;
     }
     RTC.PITINTFLAGS = RTC_PI_bm ; // clear interrupt flag
+}
+
+
+ISR(PORTC_PORT_vect)
+{
+    cli(); // Disable interrupts
+    if(button_timer == 0)
+    {
+
+        buttons = ~PORTC.IN & (BUTTON_A | BUTTON_B | BUTTON_C);
+        button_timer = BUTTON_DEBOUNCE;
+    }
+
+    PORTC.INTFLAGS |= BUTTON_A | BUTTON_B | BUTTON_C ; // clear interrupt flags
+    sei(); // Re-enable interrupts
 }
 
 // -------------- BUTTONS --------------------
@@ -490,9 +513,11 @@ void game_main() {
         if(button_pressed(BUTTON_A)) {
             if (menu_index > 0)
                 menu_index--;
+            wait_for_button_released(BUTTON_A);
         }
         if(button_pressed(BUTTON_B))
         {
+            wait_for_button_released(BUTTON_B);
             switch (menu_index)
             {
             case MENU_BRUSH:
@@ -528,6 +553,7 @@ void game_main() {
         {
             if (menu_index < MENU_ITEMS - 1)
                 menu_index++;
+            wait_for_button_released(BUTTON_C);
         }
         drawSprite(PET_SPRITE);
         drawUI();
