@@ -75,6 +75,7 @@ uint8_t menu_index = 0;
 uint8_t buttons = 0;
 
 uint8_t animationFrame = 0;
+uint8_t pet_evolution_stage = 0;
 
 #define ANIMATION_TIME 20
 uint8_t animationDelay = 0;
@@ -136,7 +137,7 @@ void drawSprite(uint8_t sprite) {
         dimensions = PET_SPRITE_DIMENSIONS;
         offset_x = 48;
         offset_y = 15;
-        sprite_ptr = pet_sprite_idle[animationFrame % PET_NUM_FRAMES];
+        sprite_ptr = pet_sprite[pet_evolution_stage][animationFrame % PET_NUM_FRAMES];
         break;
     case BRUSH_SPRITE:
         dimensions = BRUSH_SPRITE_DIMENSIONS;
@@ -206,10 +207,6 @@ void init_pins() {
     PORTC.PIN0CTRL = PORT_PULLUPEN_bm; // PC0 pullup (button A)
     PORTC.PIN1CTRL = PORT_PULLUPEN_bm; // PC1 pullup (button B)
     PORTC.PIN2CTRL = PORT_PULLUPEN_bm; // PC2 pullup (button C)
-    PORTC.PIN4CTRL = PORT_PULLUPEN_bm;
-    PORTC.PIN5CTRL = PORT_PULLUPEN_bm;
-    PORTC.PIN6CTRL = PORT_PULLUPEN_bm;
-    PORTC.PIN7CTRL = PORT_PULLUPEN_bm;
     PORTA.PIN0CTRL = PORT_PULLUPEN_bm;
     PORTA.PIN1CTRL = PORT_PULLUPEN_bm; 
     sei();
@@ -234,12 +231,12 @@ void init_oled() {
 void init_timer() {
     uart_putstring("Timer init begin\n");
     TCA0.SINGLE.CTRLA = TCA_SINGLE_ENABLE_bm 
-                      | TCA_SINGLE_CLKSEL_DIV2_gc;
+                      | TCA_SINGLE_CLKSEL_DIV2_gc; // Sys clock / 2 = 2MHz
 
     TCA0.SINGLE.INTCTRL = 0x1;
 
     TCB0.CTRLA = TCB_ENABLE_bm 
-               | TCB_CLKSEL_DIV2_gc;
+               | TCB_CLKSEL_DIV2_gc; // CLK_PER / 2 = 2MHz?
 
     TCB0.INTCTRL = 0x2;
 
@@ -329,7 +326,11 @@ ISR(RTC_PIT_vect)
     if (ageDelay > AGE_TIME)
     {
         if (pet.age_low == UINT8_MAX)
-            pet.age_high++;
+            {
+                pet.age_high++;
+                if (pet.age_high > 0 && pet_evolution_stage < PET_EVOLUTIONS - 1)
+                    pet_evolution_stage++;
+            }
         pet.age_low++;
         if (pet.happiness > 0)
                 pet.happiness--;
@@ -487,7 +488,6 @@ void game_main() {
         oled.clearDisplay();
 
         if(button_pressed(BUTTON_A)) {
-            oled.println("A");
             if (menu_index > 0)
                 menu_index--;
         }
@@ -526,7 +526,6 @@ void game_main() {
         }
         if(button_pressed(BUTTON_C))
         {
-            oled.println("C");
             if (menu_index < MENU_ITEMS - 1)
                 menu_index++;
         }
