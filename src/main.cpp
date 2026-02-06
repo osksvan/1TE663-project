@@ -11,7 +11,7 @@ Project for course in 1TE663 course at Uppsala University
 #include <EEPROM.h>
 #include <avr/wdt.h>
 
-#include <Adafruit_SSD1306.h>
+#include "../lib/basic_oled/oled.h"
 
 #define BUTTON_A PIN2_bm
 #define BUTTON_B PIN1_bm
@@ -19,7 +19,7 @@ Project for course in 1TE663 course at Uppsala University
 #define BUZZER_PIN PIN3_bm
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
-#define OLED_RESET -1
+#define OLED_ADDR 0x78
 #define MENU_ITEMS 8
 #define MENU_ITEMS_LENGTH 8
 
@@ -36,9 +36,6 @@ Project for course in 1TE663 course at Uppsala University
 
 #define CHECK_BIT(var,pos) ((var) & (1<<(pos))) // https://stackoverflow.com/questions/523724/c-c-check-if-one-bit-is-set-in-i-e-int-variable
 #define Reset_AVR() wdt_enable(WDTO_30MS); while(1) {} // https://support.microchip.com/s/article/Software-Reset-of-AVR-devices
-
-// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
-Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 int menuIndex = 0;
 boolean test = true;
@@ -115,13 +112,20 @@ struct Pet {
 struct Pet pet;
 
 void drawUI() {
-    oled.setCursor(0, 0);
-    oled.println(pet.age_high * UINT8_MAX + pet.age_low);
-    oled.setCursor(64, 56);
-    oled.println(pet.name);
-    oled.setCursor(0, 56);
-    oled.print(">");
-    oled.println(menu_entries[menu_index]);
+    char str[8];
+    OLED_set_cursor(0, 0, OLED_ADDR);
+    itoa(pet.age_high*UINT8_MAX + pet.age_low, str, 8);
+    OLED_print(str, OLED_ADDR);
+    // oled.setCursor(64, 56);
+    // oled.println(pet.name);
+    OLED_set_cursor(0, 56, OLED_ADDR);
+    OLED_print(pet.name, OLED_ADDR);
+    // oled.setCursor(0, 56);
+    // oled.print(">");
+    // oled.println(menu_entries[menu_index]);
+    OLED_set_cursor(7, 0, OLED_ADDR);
+    OLED_print(">", OLED_ADDR);
+    OLED_print(menu_entries[menu_index], OLED_ADDR);
 }
 
 void drawSprite(uint8_t sprite) {
@@ -171,7 +175,7 @@ void drawSprite(uint8_t sprite) {
             for (uint8_t pixel = 0; pixel < 8; pixel++)
             {
                 if (CHECK_BIT(pixels, pixel)){
-                    oled.drawPixel(col*8 + offset_x + pixel, row + offset_y, 1);
+                    framebuffer_set_pixel(col*8 + offset_x + pixel, row + offset_y);
                 }
             }
         }
@@ -184,7 +188,10 @@ void drawSprite(uint8_t sprite) {
         if (row >= dimensions) // Not sure why this is needed, row is not reset to 0 between drawPet calls?
             row = 0;
     }
+
 }
+
+
 
 // -------------------- Init ------------------------------
 
@@ -221,17 +228,10 @@ void init_pins() {
 
 void init_oled() {
     uart_putstring("OLED init begin\n");
-    if(!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { 
-        uart_putstring("OLED init failed!\n");
-        while(true) {} // Don't proceed, loop forever
-    }
-    oled.setRotation(2); // Rotate screen 180 degrees
-    oled.clearDisplay();
-    oled.setTextSize(1);
-    oled.setTextColor(WHITE);
-    oled.setCursor(0, 20);
-    oled.println("OLED OK");
-    oled.display();
+    OLED_init(OLED_ADDR);
+    OLED_clear(OLED_ADDR);
+    char a[] = "OLED OK";
+    OLED_print(a, OLED_ADDR);
     uart_putstring("OLED init done\n");
 }
 
@@ -306,6 +306,7 @@ ISR(TCB0_INT_vect) {
     animation_timer++;
     if (animation_timer > ANIMATION_TIME)
     {
+        uart_putstring("New animation frame\n");
         animation_frame++;
         animation_timer = 0;
         if (pet.happiness < 10 | pet.hunger > 10)
@@ -439,12 +440,12 @@ void reset() {
 void new_game() {
     reset();
     load_save();
-    oled.clearDisplay();
-    oled.setCursor(40, 30);
-    oled.println("Welcome!");
-    oled.println("Press B to continue");
-    oled.display();
-    
+
+    OLED_clear(OLED_ADDR);
+    OLED_set_cursor(3,30, OLED_ADDR);
+    OLED_print("Welcome!", OLED_ADDR);
+    OLED_set_cursor(4,30, OLED_ADDR);
+    OLED_print("Press B to continue", OLED_ADDR);
     wait_for_button_pressed_and_released(BUTTON_B);
     gameState = NAME_SELECT;
 }
@@ -456,16 +457,15 @@ void name_select() {
         uint8_t selection_index = 1;
         while (!selected) 
         {
-            oled.clearDisplay();
-            oled.setCursor(0, 0);
-            oled.println("Enter name:");
+            OLED_clear(OLED_ADDR);
+            OLED_set_cursor(0,0, OLED_ADDR);
+            OLED_print("Enter name:", OLED_ADDR);
             for (uint8_t i = 0; i < MAX_NAME_LENGTH; i++)
             {
-                oled.print(pet.name[i]);
+                OLED_putchar(pet.name[i], OLED_ADDR);
             }
-            oled.setCursor(0, 16);
-            oled.println(alpha_inputs[selection_index]);
-            oled.display();
+            OLED_set_cursor(1,8, OLED_ADDR);
+            OLED_putchar(alpha_inputs[selection_index], OLED_ADDR);
 
             // wait_for_button_press();
             if(button_pressed(BUTTON_A) && selection_index > 0) {
@@ -508,8 +508,6 @@ void name_select() {
 
 void game_main() {
     while(true) {
-        oled.clearDisplay();
-
         if(button_pressed(BUTTON_A)) {
             if (menu_index > 0)
                 menu_index--;
@@ -555,9 +553,12 @@ void game_main() {
                 menu_index++;
             wait_for_button_released(BUTTON_C);
         }
+        framebuffer_clear();
         drawSprite(PET_SPRITE);
         drawUI();
-        oled.display();
+        OLED_clear(OLED_ADDR);
+        OLED_print_framebuffer(OLED_ADDR);
+        
     }
 }
 
@@ -567,12 +568,13 @@ void pet_brush() {
     {
         if (pet.happiness < UINT8_MAX)
             pet.happiness++;
-        oled.clearDisplay();
-        oled.setCursor(0, 0);
+        OLED_clear(OLED_ADDR);
+        OLED_set_cursor(0, 0, OLED_ADDR);
         drawSprite(BRUSH_SPRITE);
         drawSprite(PET_SPRITE);
         drawUI();
-        oled.display();
+        OLED_print_framebuffer(OLED_ADDR);
+        framebuffer_clear();
     if (button_pressed(BUTTON_A) |
         button_pressed(BUTTON_B) |
         button_pressed(BUTTON_C))
@@ -589,12 +591,14 @@ void pet_play() {
     {
         if (pet.happiness < UINT8_MAX)
             pet.happiness++;
-        oled.clearDisplay();
-        oled.setCursor(0, 0);
+        OLED_clear(OLED_ADDR);
+        framebuffer_clear();
+        OLED_set_cursor(0, 0, OLED_ADDR);
         drawSprite(PET_SPRITE);
         drawUI();
         drawSprite(BALL_SPRITE);
-        oled.display();
+        OLED_print_framebuffer(OLED_ADDR);
+        
     if (button_pressed(BUTTON_A) |
         button_pressed(BUTTON_B) |
         button_pressed(BUTTON_C))
@@ -610,16 +614,17 @@ void pet_status() {
     wait_for_button_released(BUTTON_B);
     while (true)
     {
-        oled.clearDisplay();
+        OLED_clear(OLED_ADDR);
         drawUI();
-        oled.setCursor(0, 8);
-        oled.print("Age: ");
-        oled.println(pet.age_high * UINT8_MAX + pet.age_low);
-        oled.print("Happiness: ");
-        oled.println(pet.happiness);
-        oled.print("Hunger: ");
-        oled.println(pet.hunger);
-        oled.display();
+        OLED_set_cursor(0, 8, OLED_ADDR);
+        OLED_print("Age: ", OLED_ADDR);
+        OLED_set_cursor(1, 8, OLED_ADDR);
+        // oled.println(pet.age_high * UINT8_MAX + pet.age_low);
+        OLED_print("Happiness: ", OLED_ADDR);
+        OLED_set_cursor(2, 8, OLED_ADDR);
+        // oled.println(pet.happiness);
+        OLED_print("Hunger: ", OLED_ADDR);
+        // oled.println(pet.hunger);
     if (button_pressed(BUTTON_A) |
         button_pressed(BUTTON_B) |
         button_pressed(BUTTON_C))
@@ -637,12 +642,14 @@ void pet_feed() {
         if (pet.hunger > 0)
             pet.hunger--;
         
-        oled.clearDisplay();
-        oled.setCursor(0, 0);
+        OLED_clear(OLED_ADDR);
+        framebuffer_clear();
+        OLED_set_cursor(0, 0, OLED_ADDR);
         drawSprite(FOOD_SPRITE);
         drawSprite(PET_SPRITE);
         drawUI();
-        oled.display();
+        OLED_print_framebuffer(OLED_ADDR);
+        
     if (button_pressed(BUTTON_A) |
         button_pressed(BUTTON_B) |
         button_pressed(BUTTON_C))
@@ -660,12 +667,14 @@ void pet_pet() {
         if (pet.happiness < UINT8_MAX)
             pet.happiness++;
         
-        oled.clearDisplay();
-        oled.setCursor(0, 0);
+        OLED_clear(OLED_ADDR);
+        framebuffer_clear();
+        OLED_set_cursor(0, 0, OLED_ADDR);
         drawSprite(HAND_SPRITE);
         drawSprite(PET_SPRITE);
         drawUI();
-        oled.display();
+        OLED_print_framebuffer(OLED_ADDR);
+        
     if (button_pressed(BUTTON_A) |
         button_pressed(BUTTON_B) |
         button_pressed(BUTTON_C))
