@@ -215,16 +215,16 @@ void OLED_putbyte(uint8_t col, uint8_t page, uint8_t byte, uint8_t addr) {
 
 void OLED_print_framebuffer(uint8_t addr) {
     // Writes the framebufer to the oled screen,
-    // entire row (128 bytes) is sent in one stream
-    for (uint8_t page = 0; page < SCREEN_HEIGHT / 8; page++)
+    // entire buffer (1024 bytes) is sent to the screen at once
+    i2c_start(addr);
+    i2c_write(0x40); // Begin Data Stream
+    for (uint8_t page = 0; page < 8; page++)
     {
-        OLED_set_cursor(page, 0, addr);
-        i2c_start(addr);
-        i2c_write(0x40); // Begin Data Stream
         for (uint8_t col = 0; col < SCREEN_WIDTH; col++)
-            i2c_write(framebuffer[SCREEN_WIDTH-col-1][SCREEN_HEIGHT/8-page-1]); // Inverted!
-        i2c_stop();
+            i2c_write(framebuffer[SCREEN_WIDTH-col-1][8-page-1]); // Inverted!
+        
     }
+    i2c_stop();
 }
 
 
