@@ -21,6 +21,11 @@
 #define SCREEN_HEIGHT 64
 #define SCREEN_WIDTH 128
 
+#define NORMAL_ROTATION 0
+#define UPSIDE_DOWN     1 // Things are getting stranger
+
+
+
 void i2c_init(void);
 static void TWI0_sendMasterCommand(uint8_t newCommand);
 static void TWI0_setACKAction(void);
@@ -32,14 +37,17 @@ void OLED_command(uint8_t cmd, uint8_t addr);
 void OLED_data(uint8_t data, uint8_t addr);
 void OLED_init(uint8_t addr);
 void OLED_set_cursor(uint8_t page, uint8_t column, uint8_t addr);
-void framebuffer_set_pixel(uint8_t x, uint8_t y);
+void framebuffer_set_pixel(uint8_t x, uint8_t y, uint8_t reverse);
+void framebuffer_putchar(char c, uint8_t reverse, uint8_t page, uint8_t col, uint8_t addr);
+void framebuffer_put_string(char* str, uint8_t reverse, uint8_t page, uint8_t col, uint8_t addr);
 void OLED_putbyte(uint8_t col, uint8_t page, uint8_t byte, uint8_t addr);
-void OLED_print_framebuffer(uint8_t addr);
+void OLED_print_framebuffer(uint8_t upside_down, uint8_t addr);
 void OLED_putchar(char c, uint8_t addr);
 void OLED_print(const char* str, uint8_t addr);
 void OLED_clear(uint8_t addr);
 void framebuffer_clear();
-
+static uint8_t reverse_bits(uint8_t b);
+void OLED_test(uint8_t addr) ;
 
 
 #endif /*  OLED_H  */

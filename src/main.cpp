@@ -24,7 +24,7 @@ Project for course in 1TE663 course at Uppsala University
 #define MENU_ITEMS_LENGTH 8
 
 #define MAX_NAME_LENGTH 10
-#define NAME_DEFAULT {'\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0'}
+#define NAME_DEFAULT {' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', '\0'}
 
 #define EEPROM_PET_AGE_HIGH 0x00
 #define EEPROM_PET_AGE_LOW 0x01
@@ -38,7 +38,6 @@ Project for course in 1TE663 course at Uppsala University
 #define Reset_AVR() wdt_enable(WDTO_30MS); while(1) {} // https://support.microchip.com/s/article/Software-Reset-of-AVR-devices
 
 int menuIndex = 0;
-boolean test = true;
 
 char alpha_inputs[] = {'?', '!', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 
                        'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 
@@ -113,19 +112,11 @@ struct Pet pet;
 
 void drawUI() {
     char str[8];
-    OLED_set_cursor(0, 0, OLED_ADDR);
     itoa(pet.age_high*UINT8_MAX + pet.age_low, str, 8);
-    OLED_print(str, OLED_ADDR);
-    // oled.setCursor(64, 56);
-    // oled.println(pet.name);
-    OLED_set_cursor(0, 56, OLED_ADDR);
-    OLED_print(pet.name, OLED_ADDR);
-    // oled.setCursor(0, 56);
-    // oled.print(">");
-    // oled.println(menu_entries[menu_index]);
-    OLED_set_cursor(7, 0, OLED_ADDR);
-    OLED_print(">", OLED_ADDR);
-    OLED_print(menu_entries[menu_index], OLED_ADDR);
+    framebuffer_put_string(str, UPSIDE_DOWN, 0, 0, OLED_ADDR);
+    framebuffer_put_string(pet.name, UPSIDE_DOWN, 0, 56, OLED_ADDR);
+    framebuffer_putchar('>', UPSIDE_DOWN, 7, 0, OLED_ADDR);
+    framebuffer_put_string(menu_entries[menu_index], UPSIDE_DOWN, 7, 8, OLED_ADDR);
 }
 
 void drawSprite(uint8_t sprite) {
@@ -175,7 +166,7 @@ void drawSprite(uint8_t sprite) {
             for (uint8_t pixel = 0; pixel < 8; pixel++)
             {
                 if (CHECK_BIT(pixels, pixel)){
-                    framebuffer_set_pixel(col*8 + offset_x + pixel, row + offset_y);
+                    framebuffer_set_pixel(col*8 + offset_x + pixel, dimensions-row + offset_y, UPSIDE_DOWN);
                 }
             }
         }
@@ -229,9 +220,11 @@ void init_pins() {
 void init_oled() {
     uart_putstring("OLED init begin\n");
     OLED_init(OLED_ADDR);
-    OLED_clear(OLED_ADDR);
-    char a[] = "OLED OK";
-    OLED_print(a, OLED_ADDR);
+    framebuffer_clear();
+    framebuffer_put_string("OLED OK", UPSIDE_DOWN, 0, 0, OLED_ADDR);
+    OLED_print_framebuffer(1, OLED_ADDR);
+    // OLED_clear(OLED_ADDR);
+    // OLED_print("OLED OK", OLED_ADDR);
     uart_putstring("OLED init done\n");
 }
 
@@ -289,9 +282,9 @@ static int uart_putstring(char * strptr)
 ISR(TCA0_OVF_vect) {
     cli();
     if (button_timer > 0)
-        {
-            button_timer--;
-        }
+    {
+        button_timer--;
+    }
     if (button_timer == 0 && (PORTC.IN & (BUTTON_A | BUTTON_B | BUTTON_C)))
     {
         buttons = 0;
@@ -314,12 +307,12 @@ ISR(TCB0_INT_vect) {
             if (buzzer_state)
                 {
                     buzzer_state = !buzzer_state;
-                    PORTC.OUT &= ~0b00001000; // Buzzer ON
+                    // PORTC.OUT &= ~0b00001000; // Buzzer ON
                 }
             else
                 {
                     buzzer_state = !buzzer_state;
-                    PORTC.OUT |= 0b00001000; // Buzzer OFF
+                    // PORTC.OUT |= 0b00001000; // Buzzer OFF
                 }
         }
         else
@@ -331,6 +324,7 @@ ISR(TCB0_INT_vect) {
 
 ISR(RTC_PIT_vect)
 {
+    cli();
     age_timer++;
     if (age_timer > AGE_TIME)
     {
@@ -348,6 +342,7 @@ ISR(RTC_PIT_vect)
         age_timer = 0;
     }
     RTC.PITINTFLAGS = RTC_PI_bm ; // clear interrupt flag
+    sei();
 }
 
 
@@ -358,6 +353,9 @@ ISR(PORTC_PORT_vect)
     {
 
         buttons = ~PORTC.IN & (BUTTON_A | BUTTON_B | BUTTON_C);
+        char str[8];
+        itoa(buttons, str, 8);
+        uart_putstring(str);
         button_timer = BUTTON_DEBOUNCE;
     }
 
@@ -441,11 +439,10 @@ void new_game() {
     reset();
     load_save();
 
-    OLED_clear(OLED_ADDR);
-    OLED_set_cursor(3,30, OLED_ADDR);
-    OLED_print("Welcome!", OLED_ADDR);
-    OLED_set_cursor(4,30, OLED_ADDR);
-    OLED_print("Press B to continue", OLED_ADDR);
+    framebuffer_clear();
+    framebuffer_put_string("Welcome!", UPSIDE_DOWN, 3, 25, OLED_ADDR);
+    framebuffer_put_string("Press B to continue", UPSIDE_DOWN, 4, 0, OLED_ADDR);
+    OLED_print_framebuffer(1, OLED_ADDR);
     wait_for_button_pressed_and_released(BUTTON_B);
     gameState = NAME_SELECT;
 }
@@ -457,16 +454,12 @@ void name_select() {
         uint8_t selection_index = 1;
         while (!selected) 
         {
-            OLED_clear(OLED_ADDR);
-            OLED_set_cursor(0,0, OLED_ADDR);
-            OLED_print("Enter name:", OLED_ADDR);
-            for (uint8_t i = 0; i < MAX_NAME_LENGTH; i++)
-            {
-                OLED_putchar(pet.name[i], OLED_ADDR);
-            }
-            OLED_set_cursor(1,8, OLED_ADDR);
-            OLED_putchar(alpha_inputs[selection_index], OLED_ADDR);
-
+            framebuffer_clear();
+            framebuffer_put_string("Enter name:", UPSIDE_DOWN, 0, 0, OLED_ADDR);
+            framebuffer_put_string(pet.name, UPSIDE_DOWN, 0, 65, OLED_ADDR);
+            framebuffer_putchar(alpha_inputs[selection_index], UPSIDE_DOWN, 1, 16, OLED_ADDR);
+            OLED_print_framebuffer(1, OLED_ADDR);
+            _delay_ms(100);
             // wait_for_button_press();
             if(button_pressed(BUTTON_A) && selection_index > 0) {
                 selection_index = (selection_index - 1);
@@ -557,7 +550,7 @@ void game_main() {
         drawSprite(PET_SPRITE);
         drawUI();
         OLED_clear(OLED_ADDR);
-        OLED_print_framebuffer(OLED_ADDR);
+        OLED_print_framebuffer(1, OLED_ADDR);
         
     }
 }
@@ -572,7 +565,7 @@ void pet_brush() {
         drawSprite(PET_SPRITE);
         drawUI();
         OLED_clear(OLED_ADDR);
-        OLED_print_framebuffer(OLED_ADDR);
+        OLED_print_framebuffer(1, OLED_ADDR);
         framebuffer_clear();
     if (button_pressed(BUTTON_A) |
         button_pressed(BUTTON_B) |
@@ -595,7 +588,7 @@ void pet_play() {
         drawUI();
         drawSprite(BALL_SPRITE);
         OLED_clear(OLED_ADDR);
-        OLED_print_framebuffer(OLED_ADDR);
+        OLED_print_framebuffer(1, OLED_ADDR);
         
     if (button_pressed(BUTTON_A) |
         button_pressed(BUTTON_B) |
@@ -613,23 +606,20 @@ void pet_status() {
     while (true)
     {
         char str[8];
-        OLED_clear(OLED_ADDR);
+        framebuffer_clear();
         drawUI();
-        OLED_set_cursor(2, 8, OLED_ADDR);
-        OLED_print("Age: ", OLED_ADDR);
+        framebuffer_put_string("Age: ", UPSIDE_DOWN, 2, 8, OLED_ADDR);
         itoa(pet.age_high*UINT8_MAX + pet.age_low, str, 8);
-        OLED_print(str, OLED_ADDR);
+        framebuffer_put_string(str, UPSIDE_DOWN, 2, 35, OLED_ADDR);
 
-        OLED_set_cursor(3, 8, OLED_ADDR);
-        OLED_print("Happiness: ", OLED_ADDR);
+        framebuffer_put_string("Happiness: ", UPSIDE_DOWN, 3, 8, OLED_ADDR);
         itoa(pet.happiness, str, 8);
-        OLED_print(str, OLED_ADDR);
+        framebuffer_put_string(str, UPSIDE_DOWN, 3, 70, OLED_ADDR);
 
-        OLED_set_cursor(4, 8, OLED_ADDR);
-        OLED_print("Hunger: ", OLED_ADDR);
+        framebuffer_put_string("Hunger: ", UPSIDE_DOWN, 4, 8, OLED_ADDR);
         itoa(pet.hunger, str, 8);
-        OLED_print(str, OLED_ADDR);
-
+        framebuffer_put_string(str, UPSIDE_DOWN, 4, 50, OLED_ADDR);
+        OLED_print_framebuffer(1, OLED_ADDR);
     if (button_pressed(BUTTON_A) |
         button_pressed(BUTTON_B) |
         button_pressed(BUTTON_C))
@@ -652,7 +642,7 @@ void pet_feed() {
         drawSprite(PET_SPRITE);
         drawUI();
         OLED_clear(OLED_ADDR);
-        OLED_print_framebuffer(OLED_ADDR);
+        OLED_print_framebuffer(1, OLED_ADDR);
         
     if (button_pressed(BUTTON_A) |
         button_pressed(BUTTON_B) |
@@ -677,7 +667,7 @@ void pet_pet() {
         drawSprite(PET_SPRITE);
         drawUI();
         OLED_clear(OLED_ADDR);
-        OLED_print_framebuffer(OLED_ADDR);
+        OLED_print_framebuffer(1, OLED_ADDR);
         
     if (button_pressed(BUTTON_A) |
         button_pressed(BUTTON_B) |
@@ -701,6 +691,8 @@ int main() {
     init_pins();
     
     init_oled();
+
+    // OLED_test(OLED_ADDR);
 
     load_save();
 
