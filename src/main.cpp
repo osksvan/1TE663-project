@@ -228,12 +228,12 @@ void init_timer() {
     TCA0.SINGLE.CTRLA = TCA_SINGLE_ENABLE_bm 
                       | TCA_SINGLE_CLKSEL_DIV1_gc;
 
-    TCA0.SINGLE.INTCTRL = 0x1;
+    TCA0.SINGLE.INTCTRL = TCA_SINGLE_OVF_bm; 
 
     TCB0.CTRLA = TCB_ENABLE_bm 
                | TCB_CLKSEL_DIV2_gc; // CLK_PER / 2 = 2MHz?
 
-    TCB0.INTCTRL = 0x2;
+    TCB0.INTCTRL = TCB_OVF_bm; 
 
     uart_putstring("Timer init end\n");
 
