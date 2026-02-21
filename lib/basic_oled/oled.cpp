@@ -67,7 +67,7 @@ void OLED_data(uint8_t data, uint8_t addr) {
 }
 
 void OLED_init(uint8_t addr) {
-    i2c_init(); // Your existing function
+    i2c_init();
     
     uint8_t init_cmds[] = {
         0xAE, // Display OFF

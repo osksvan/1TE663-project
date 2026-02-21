@@ -17,20 +17,18 @@ Project for course in 1TE663 course at Uppsala University
 #define BUTTON_B PIN1_bm
 #define BUTTON_C PIN0_bm
 #define BUZZER_PIN PIN3_bm
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define OLED_ADDR 0x78
 #define MENU_ITEMS 8
 #define MENU_ITEMS_LENGTH 8
 
 #define MAX_NAME_LENGTH 10
-#define NAME_DEFAULT {' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', '\0'}
+#define NAME_DEFAULT {'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', '\0'}
 
+// EEPROM memory structure
 #define EEPROM_PET_AGE_HIGH 0x00
-#define EEPROM_PET_AGE_LOW 0x01
+#define EEPROM_PET_AGE_LOW (EEPROM_PET_AGE_HIGH + 1)
 #define EEPROM_PET_NAME_START (EEPROM_PET_AGE_LOW + 1)
-#define EEPROM_PET_NAME_END (EEPROM_PET_NAME_START + MAX_NAME_LENGTH - 1)
-#define EEPROM_PET_RESET (EEPROM_PET_NAME_END + 1)
+#define EEPROM_PET_RESET (EEPROM_PET_NAME_START + MAX_NAME_LENGTH + 1)
 #define EEPROM_PET_HAPPINESS (EEPROM_PET_RESET + 1)
 #define EEPROM_PET_HUNGER (EEPROM_PET_HAPPINESS + 1)
 
@@ -76,7 +74,6 @@ uint8_t animation_timer = 0;
 #define AGE_TIME 10
 uint8_t age_timer = 0;
 
-
 #define BUTTON_DEBOUNCE 10
 uint8_t button_timer = 0;
 
@@ -102,7 +99,7 @@ STATE_MACHINE_t gameState = NEW_GAME;
 
 struct Pet {
     uint8_t age_high, age_low;
-    char name[10] = NAME_DEFAULT;
+    char name[10];
     bool reset = true;
     uint8_t happiness;
     uint8_t hunger;
@@ -112,7 +109,7 @@ struct Pet pet;
 
 void drawUI() {
     char str[8];
-    itoa(pet.age_high*UINT8_MAX + pet.age_low, str, 8);
+    itoa(pet.age_high*UINT8_MAX + pet.age_low, str, 10);
     framebuffer_put_string(str, UPSIDE_DOWN, 0, 0, OLED_ADDR);
     framebuffer_put_string(pet.name, UPSIDE_DOWN, 0, 56, OLED_ADDR);
     framebuffer_putchar('>', UPSIDE_DOWN, 7, 0, OLED_ADDR);
@@ -223,8 +220,6 @@ void init_oled() {
     framebuffer_clear();
     framebuffer_put_string("OLED OK", UPSIDE_DOWN, 0, 0, OLED_ADDR);
     OLED_print_framebuffer(1, OLED_ADDR);
-    // OLED_clear(OLED_ADDR);
-    // OLED_print("OLED OK", OLED_ADDR);
     uart_putstring("OLED init done\n");
 }
 
@@ -246,10 +241,13 @@ void init_timer() {
 
 void init_RTC() {
     uart_putstring("RTC init begin\n");
-    RTC.CTRLA = RTC_PRESCALER_DIV4096_gc; // Set prescaler to 1:1
-    RTC.CLKSEL = RTC_CLKSEL_OSC32K_gc; // Select the internal 32kHz osc
-    RTC.PITCTRLA = RTC_PITEN_bm | RTC_PERIOD_CYC4096_gc; // Enable PIT and set interrupt period
-    RTC.PITINTCTRL = RTC_PITEN_bm; // Enable PIT interrupts
+    RTC.CLKSEL = RTC_CLKSEL_INT32K_gc;
+    while (RTC.STATUS & RTC_CTRLABUSY_bm) {}
+    RTC.PER = RTC_PERIOD_CYC32_gc;
+    RTC.INTCTRL = RTC_OVF_bm;
+    
+    RTC.CTRLA = RTC_RTCEN_bm | RTC_PRESCALER_DIV1024_gc; 
+    while (RTC.STATUS & RTC_CTRLABUSY_bm) {}
     sei();
     uart_putstring("RTC init done\n");
 }
@@ -296,10 +294,10 @@ ISR(TCA0_OVF_vect) {
 
 ISR(TCB0_INT_vect) {
     cli();
+
     animation_timer++;
     if (animation_timer > ANIMATION_TIME)
     {
-        uart_putstring("New animation frame\n");
         animation_frame++;
         animation_timer = 0;
         if (pet.happiness < 10 | pet.hunger > 10)
@@ -322,26 +320,21 @@ ISR(TCB0_INT_vect) {
     sei();
 }
 
-ISR(RTC_PIT_vect)
+ISR(RTC_CNT_vect)
 {
     cli();
-    age_timer++;
-    if (age_timer > AGE_TIME)
+    if (pet.age_low == UINT8_MAX)
     {
-        if (pet.age_low == UINT8_MAX)
-            {
-                pet.age_high++;
-                if (pet.age_high > 0 && pet_evolution_stage < PET_EVOLUTIONS - 1)
-                    pet_evolution_stage++;
-            }
-        pet.age_low++;
-        if (pet.happiness > 0)
-                pet.happiness--;
-        if (pet.hunger < UINT8_MAX)
-            pet.hunger++;
-        age_timer = 0;
+        pet.age_high++;
+        if (pet.age_high > 0 && pet_evolution_stage < PET_EVOLUTIONS - 1)
+            pet_evolution_stage++;
     }
-    RTC.PITINTFLAGS = RTC_PI_bm ; // clear interrupt flag
+    pet.age_low++;
+    if (pet.happiness > 0)
+        pet.happiness--;
+    if (pet.hunger < UINT8_MAX)
+        pet.hunger++;
+    RTC.INTFLAGS = RTC_OVF_bm; // clear interrupt flag
     sei();
 }
 
@@ -354,7 +347,7 @@ ISR(PORTC_PORT_vect)
 
         buttons = ~PORTC.IN & (BUTTON_A | BUTTON_B | BUTTON_C);
         char str[8];
-        itoa(buttons, str, 8);
+        itoa(buttons, str, 10);
         uart_putstring(str);
         button_timer = BUTTON_DEBOUNCE;
     }
@@ -400,10 +393,11 @@ void wait_for_button_pressed_and_released(int button) {
 void load_save() {
     pet.age_high = EEPROM.read(EEPROM_PET_AGE_HIGH);
     pet.age_low = EEPROM.read(EEPROM_PET_AGE_LOW);
-    for (uint8_t idx = EEPROM_PET_NAME_START; idx < EEPROM_PET_NAME_END; idx++)
+    for (uint8_t idx = 0; idx < MAX_NAME_LENGTH; idx++)              
     {
-        pet.name[idx - 1] = EEPROM.read(idx);
+        pet.name[idx] = EEPROM.read(EEPROM_PET_NAME_START + idx);
     }
+
     pet.reset = EEPROM.read(EEPROM_PET_RESET);
     pet.hunger = EEPROM.read(EEPROM_PET_HUNGER);
     pet.happiness = EEPROM.read(EEPROM_PET_HAPPINESS);
@@ -412,10 +406,11 @@ void load_save() {
 void save() {
     EEPROM.write(EEPROM_PET_AGE_HIGH, pet.age_high);
     EEPROM.write(EEPROM_PET_AGE_LOW, pet.age_low);
-    for (uint8_t idx = EEPROM_PET_NAME_START; idx < EEPROM_PET_NAME_END; idx++)
+    for (uint8_t idx = 0; idx < MAX_NAME_LENGTH; idx++)
     {
-        EEPROM.write(idx, pet.name[idx - 1]);
+        EEPROM.write(EEPROM_PET_NAME_START + idx, pet.name[idx]);
     }
+
     EEPROM.write(EEPROM_PET_RESET, pet.reset);
     EEPROM.write(EEPROM_PET_HUNGER, pet.hunger);
     EEPROM.write(EEPROM_PET_HAPPINESS, pet.happiness);
@@ -424,9 +419,9 @@ void save() {
 void reset() {
     EEPROM.write(EEPROM_PET_AGE_HIGH, 0);
     EEPROM.write(EEPROM_PET_AGE_LOW, 0);
-    for (uint8_t idx = EEPROM_PET_NAME_START; idx < EEPROM_PET_NAME_END; idx++)
+    for (uint8_t idx = 0; idx < MAX_NAME_LENGTH; idx++)
     {
-        EEPROM.write(idx, '\n');
+        EEPROM.write(EEPROM_PET_NAME_START + idx, '\0');
     }
     EEPROM.write(EEPROM_PET_RESET, pet.reset);
     EEPROM.write(EEPROM_PET_HUNGER, 0);
@@ -460,6 +455,7 @@ void name_select() {
             framebuffer_putchar(alpha_inputs[selection_index], UPSIDE_DOWN, 1, 16, OLED_ADDR);
             OLED_print_framebuffer(1, OLED_ADDR);
             _delay_ms(100);
+
             // wait_for_button_press();
             if(button_pressed(BUTTON_A) && selection_index > 0) {
                 selection_index = (selection_index - 1);
@@ -468,7 +464,7 @@ void name_select() {
             }
             if(button_pressed(BUTTON_B)) {
                 selected = alpha_inputs[selection_index];
-                uart_putstring("C pressed");
+                uart_putstring("B pressed");
                 wait_for_button_released(BUTTON_B);
             }
             if(button_pressed(BUTTON_C) && selection_index < sizeof(alpha_inputs) / sizeof(char)) {
@@ -476,7 +472,6 @@ void name_select() {
                 uart_putstring("C pressed");
                 wait_for_button_released(BUTTON_C);
             }
-            
         }
         if (selected == '?') {
             gameState = GAME_MAIN;
@@ -549,9 +544,8 @@ void game_main() {
         framebuffer_clear();
         drawSprite(PET_SPRITE);
         drawUI();
-        OLED_clear(OLED_ADDR);
         OLED_print_framebuffer(1, OLED_ADDR);
-        
+               
     }
 }
 
@@ -564,9 +558,9 @@ void pet_brush() {
         drawSprite(BRUSH_SPRITE);
         drawSprite(PET_SPRITE);
         drawUI();
-        OLED_clear(OLED_ADDR);
         OLED_print_framebuffer(1, OLED_ADDR);
         framebuffer_clear();
+        
     if (button_pressed(BUTTON_A) |
         button_pressed(BUTTON_B) |
         button_pressed(BUTTON_C))
@@ -587,7 +581,6 @@ void pet_play() {
         drawSprite(PET_SPRITE);
         drawUI();
         drawSprite(BALL_SPRITE);
-        OLED_clear(OLED_ADDR);
         OLED_print_framebuffer(1, OLED_ADDR);
         
     if (button_pressed(BUTTON_A) |
@@ -609,17 +602,18 @@ void pet_status() {
         framebuffer_clear();
         drawUI();
         framebuffer_put_string("Age: ", UPSIDE_DOWN, 2, 8, OLED_ADDR);
-        itoa(pet.age_high*UINT8_MAX + pet.age_low, str, 8);
+        itoa(pet.age_high*UINT8_MAX + pet.age_low, str, 10);
         framebuffer_put_string(str, UPSIDE_DOWN, 2, 35, OLED_ADDR);
 
         framebuffer_put_string("Happiness: ", UPSIDE_DOWN, 3, 8, OLED_ADDR);
-        itoa(pet.happiness, str, 8);
+        itoa(pet.happiness, str, 10);
         framebuffer_put_string(str, UPSIDE_DOWN, 3, 70, OLED_ADDR);
 
         framebuffer_put_string("Hunger: ", UPSIDE_DOWN, 4, 8, OLED_ADDR);
-        itoa(pet.hunger, str, 8);
+        itoa(pet.hunger, str, 10);
         framebuffer_put_string(str, UPSIDE_DOWN, 4, 50, OLED_ADDR);
         OLED_print_framebuffer(1, OLED_ADDR);
+        
     if (button_pressed(BUTTON_A) |
         button_pressed(BUTTON_B) |
         button_pressed(BUTTON_C))
@@ -636,13 +630,12 @@ void pet_feed() {
     {
         if (pet.hunger > 0)
             pet.hunger--;
-        
         framebuffer_clear();
         drawSprite(FOOD_SPRITE);
         drawSprite(PET_SPRITE);
         drawUI();
-        OLED_clear(OLED_ADDR);
         OLED_print_framebuffer(1, OLED_ADDR);
+        
         
     if (button_pressed(BUTTON_A) |
         button_pressed(BUTTON_B) |
@@ -661,13 +654,12 @@ void pet_pet() {
         if (pet.happiness < UINT8_MAX)
             pet.happiness++;
         
-        
         framebuffer_clear();
         drawSprite(HAND_SPRITE);
         drawSprite(PET_SPRITE);
         drawUI();
-        OLED_clear(OLED_ADDR);
         OLED_print_framebuffer(1, OLED_ADDR);
+        
         
     if (button_pressed(BUTTON_A) |
         button_pressed(BUTTON_B) |
@@ -692,10 +684,7 @@ int main() {
     
     init_oled();
 
-    // OLED_test(OLED_ADDR);
-
     load_save();
-
     if (!pet.reset)
     {
         gameState = GAME_MAIN;
@@ -705,7 +694,7 @@ int main() {
     {
         uart_putstring("While loop with gameState: ");
         char str[8];
-        itoa(gameState, str, 8);
+        itoa(gameState, str, 10);
         uart_putstring(str);
         uart_putstring("\n");
         switch (gameState)
