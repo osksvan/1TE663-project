@@ -10,19 +10,26 @@ Project for course in 1TE663 course at Uppsala University
 #include <stdio.h>
 #include <EEPROM.h>
 #include <avr/wdt.h>
-
 #include "../lib/basic_oled/oled.h"
 
+#define BUZZER_PIN PIN3_bm
 #define BUTTON_A PIN2_bm
 #define BUTTON_B PIN1_bm
 #define BUTTON_C PIN0_bm
-#define BUZZER_PIN PIN3_bm
+#define RED_LED_PIN PIN1_bm
+#define YLW_LED_PIN PIN2_bm
+#define GRN_LED_PIN PIN3_bm
 #define OLED_ADDR 0x78
 #define MENU_ITEMS 8
 #define MENU_ITEMS_LENGTH 8
 
 #define MAX_NAME_LENGTH 10
 #define NAME_DEFAULT {'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', '\0'}
+
+#define PET_HAPPINESS_WARNING 20
+#define PET_HUNGER_WARNING 20
+#define PET_HAPPINESS_DEATH 0
+#define PET_HUNGER_DEATH 100
 
 // EEPROM memory structure
 #define EEPROM_PET_AGE_HIGH 0x00
@@ -93,6 +100,7 @@ typedef enum STATE_MACHINE
     GAME_PLAY = 0x06,
     GAME_STATUS = 0x07,
     GAME_PET = 0x08,
+    GAME_DEATH = 0xDE,
 } STATE_MACHINE_t;
 
 STATE_MACHINE_t gameState = NEW_GAME;
@@ -200,7 +208,9 @@ void UARTInit(uint32_t baudrate)
 }
 
 void init_pins() {
-    PORTC.DIR = BUZZER_PIN; // Port C output on PC3 (Buzzer)
+
+    PORTD.DIR = RED_LED_PIN | YLW_LED_PIN | GRN_LED_PIN; // Port D output for LEDs and buzzer
+    PORTC.DIR = BUZZER_PIN;
     PORTC.PIN0CTRL = PORT_PULLUPEN_bm; // PC0 pullup (button A)
     PORTC.PIN1CTRL = PORT_PULLUPEN_bm; // PC1 pullup (button B)
     PORTC.PIN2CTRL = PORT_PULLUPEN_bm; // PC2 pullup (button C)
@@ -231,7 +241,7 @@ void init_timer() {
     TCA0.SINGLE.INTCTRL = TCA_SINGLE_OVF_bm; 
 
     TCB0.CTRLA = TCB_ENABLE_bm 
-               | TCB_CLKSEL_DIV2_gc; // CLK_PER / 2 = 2MHz?
+               | TCB_CLKSEL_DIV2_gc;
 
     TCB0.INTCTRL = TCB_OVF_bm; 
 
@@ -300,21 +310,6 @@ ISR(TCB0_INT_vect) {
     {
         animation_frame++;
         animation_timer = 0;
-        if (pet.happiness < 10 | pet.hunger > 10)
-        {
-            if (buzzer_state)
-                {
-                    buzzer_state = !buzzer_state;
-                    // PORTC.OUT &= ~0b00001000; // Buzzer ON
-                }
-            else
-                {
-                    buzzer_state = !buzzer_state;
-                    // PORTC.OUT |= 0b00001000; // Buzzer OFF
-                }
-        }
-        else
-           PORTC.OUT |= 0b00001000; // Buzzer OFF
     }
     TCB0.INTFLAGS |= TCB_OVF_bm; // Reset interrupt flag
     sei();
@@ -334,6 +329,32 @@ ISR(RTC_CNT_vect)
         pet.happiness--;
     if (pet.hunger < UINT8_MAX)
         pet.hunger++;
+    uint8_t status = 1 << 3;
+    if (pet.happiness < PET_HAPPINESS_WARNING)
+    {
+        status = status >> 1;
+    }
+    if (pet.hunger > PET_HUNGER_WARNING)
+    {
+        status = status >> 1;
+    }
+    PORTD.OUT = ~status;
+
+    if (status == 0x2)
+    {
+        if (buzzer_state)
+            PORTC.OUT &= ~0b00001000; // Buzzer ON
+        else
+            PORTC.OUT |= 0b00001000; // Buzzer OFF
+        buzzer_state = !buzzer_state;
+        
+    }
+    else
+        PORTC.OUT |= 0b00001000; // Buzzer OFF
+
+    if (pet.happiness <= PET_HAPPINESS_DEATH | pet.hunger > PET_HUNGER_DEATH)
+        gameState = GAME_DEATH;
+
     RTC.INTFLAGS = RTC_OVF_bm; // clear interrupt flag
     sei();
 }
@@ -433,7 +454,7 @@ void reset() {
 void new_game() {
     reset();
     load_save();
-
+    pet.happiness = 50;
     framebuffer_clear();
     framebuffer_put_string("Welcome!", UPSIDE_DOWN, 3, 25, OLED_ADDR);
     framebuffer_put_string("Press B to continue", UPSIDE_DOWN, 4, 0, OLED_ADDR);
@@ -444,7 +465,7 @@ void new_game() {
 
 void name_select() {
     uint8_t char_number = 0;
-    while (char_number < MAX_NAME_LENGTH) {
+    while (char_number < MAX_NAME_LENGTH && gameState != GAME_DEATH) {
         char selected = NULL;
         uint8_t selection_index = 1;
         while (!selected) 
@@ -495,7 +516,7 @@ void name_select() {
 }
 
 void game_main() {
-    while(true) {
+    while(gameState != GAME_DEATH) {
         if(button_pressed(BUTTON_A)) {
             if (menu_index > 0)
                 menu_index--;
@@ -551,7 +572,7 @@ void game_main() {
 
 void pet_brush() {
     wait_for_button_released(BUTTON_B);
-    while(true)
+    while(gameState != GAME_DEATH)
     {
         if (pet.happiness < UINT8_MAX)
             pet.happiness++;
@@ -573,7 +594,7 @@ void pet_brush() {
 
 void pet_play() {
     wait_for_button_released(BUTTON_B);
-    while(true)
+    while(gameState != GAME_DEATH)
     {
         if (pet.happiness < UINT8_MAX)
             pet.happiness++;
@@ -596,7 +617,7 @@ void pet_play() {
 
 void pet_status() {
     wait_for_button_released(BUTTON_B);
-    while (true)
+    while (gameState != GAME_DEATH)
     {
         char str[8];
         framebuffer_clear();
@@ -671,6 +692,16 @@ void pet_pet() {
     }
 }
 
+void game_over() {
+    framebuffer_clear();
+    framebuffer_put_string("Game Over!", UPSIDE_DOWN, 3, 25, OLED_ADDR);
+    framebuffer_put_string("Press B to continue", UPSIDE_DOWN, 4, 0, OLED_ADDR);
+    OLED_print_framebuffer(1, OLED_ADDR);
+    wait_for_button_pressed_and_released(BUTTON_B);
+    gameState = NEW_GAME;
+
+}
+
 
 int main() {
     UARTInit(19200);
@@ -739,6 +770,11 @@ int main() {
                 uart_putstring("Enter game feed\n");
                 pet_feed();
                 uart_putstring("Exit game feed\n");
+                break;
+            case GAME_DEATH:
+                uart_putstring("Enter game death\n");
+                game_over();
+                uart_putstring("Exit game death\n");
                 break;
             default:
                 uart_putstring("You should not see this\n");
