@@ -193,6 +193,7 @@ void drawSprite(uint8_t sprite) {
 /**
  * @param baudrate - UART baudrate
  * @brief initializes the UART module
+ * Provided by the course teacher
  */
 void UARTInit(uint32_t baudrate)
 {
@@ -263,6 +264,7 @@ void init_RTC() {
 
 
 // -------------- Serial ------------------
+// Provided by the course teacher
 /**
  * @param c - char/byte to send
  */
