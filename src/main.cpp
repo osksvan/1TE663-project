@@ -6,7 +6,6 @@ Project for course in 1TE663 course at Uppsala University
 #include "bitmaps.h"
 #include <avr/io.h>
 #include <util/delay.h>
-#include <Arduino.h>
 #include <stdio.h>
 #include <EEPROM.h>
 #include <avr/wdt.h>
